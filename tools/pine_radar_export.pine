@@ -1,0 +1,103 @@
+//@version=5
+// Copyright (c) 2026 Alexandr Varenic / ychetka. All rights reserved.
+// Licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).
+// For commercial use, please contact the author.
+
+// ═══════════════════════════════════════════════════════════════════
+// PINE RADAR EXPORT — SMC AI Analyst data bridge
+// [ARCHIVED — SMC era. The workflow this fed is retired; kept for
+// reference. See STRATEGY.md for why SMC was falsified.]
+// Publishes 4 plots with the names expected by the n8n engine v4.4:
+//   "OB Low"      — low of the last bearish order block
+//   "Volume POC"  — volume-profile Point of Control over the window
+//   "RSI"         — RSI(14)
+//   "K"           — Stochastic %K(14,3)
+// + an "EQL Signal" plot — Equal Lows trigger (the alert goes on it).
+//
+// TV alert: condition = this indicator → "EQL Signal" → crossing up 0.5,
+// firing "Once Per Bar Close". Message — the JSON alert template.
+// ═══════════════════════════════════════════════════════════════════
+indicator("Pine Radar Export — SMC AI Analyst", overlay=true, max_bars_back=500)
+
+// ── Parameters (per-ticker tuning) ──────────────────────────────────
+swingK     = input.int(3,   "Swing low: neighbours on each side", minval=1)
+eqlTolPct  = input.float(0.3, "Equal Lows tolerance, %", step=0.05)
+obImpulse  = input.float(1.0, "OB: rally after the bearish candle, %", step=0.1)
+lookback   = input.int(200, "Analysis window, bars", minval=50)
+pocBins    = input.int(40,  "VRVP: number of price bins", minval=10)
+
+// ── RSI(14) + Stochastic %K(14,3) ───────────────────────────────────
+rsiVal = ta.rsi(close, 14)
+stochK = ta.stoch(close, high, low, 14)
+// ta.stoch returns raw %K; classic %K is SMA(3)-smoothed
+stochKsm = ta.sma(stochK, 3)
+
+// ── Equal Lows: two swing lows within tolerance ─────────────────────
+isSwingLow(i) =>
+    ok = true
+    for k = 1 to swingK
+        if low[i - k] <= low[i] or low[i + k] <= low[i]
+            ok := false
+    ok
+
+var float prevSwingLow = na
+var int   prevSwingBar = na
+eqlHit = false
+if isSwingLow(swingK)
+    cur = low[swingK]
+    if not na(prevSwingLow)
+        avg = (cur + prevSwingLow) / 2
+        if math.abs(cur - prevSwingLow) / avg * 100 <= eqlTolPct
+            eqlHit := true
+    prevSwingLow := cur
+    prevSwingBar := bar_index - swingK
+
+// ── Bullish OB Low: last bearish candle before the impulse ───────────
+// A bearish candle after which close rose >obImpulse% within ≤3 bars.
+var float obLow = na
+for i = 1 to math.min(lookback, bar_index) - 3
+    bear = close[i] < open[i]
+    if bear
+        // max close in the 3 bars after candle i
+        mx = close[i - 1]
+        for j = 2 to 3
+            if i - j >= 0
+                mx := math.max(mx, close[i - j])
+        if (mx - close[i]) / close[i] * 100 >= obImpulse
+            obLow := low[i]
+            break
+
+// ── VRVP POC: volume profile over the lookback window ───────────────
+pocCalc() =>
+    n    = math.min(lookback, bar_index + 1)
+    hi   = ta.highest(high, n)
+    lo   = ta.lowest(low, n)
+    step = (hi - lo) / pocBins
+    pocP = close  // fallback
+    if step > 0
+        maxV = 0.0
+        for b = 0 to pocBins - 1
+            bLo = lo + b * step
+            bHi = bLo + step
+            vSum = 0.0
+            for i = 0 to n - 1
+                // candle volume is assigned to a bin by typical price (hlc3)
+                tp = (high[i] + low[i] + close[i]) / 3
+                if tp >= bLo and tp < bHi
+                    vSum += volume[i]
+            if vSum > maxV
+                maxV := vSum
+                pocP := (bLo + bHi) / 2
+    pocP
+
+pocVal = pocCalc()
+
+// ── Plots (names are critical — the JSON template binds to them) ────
+plot(obLow,    "OB Low",      color=color.new(color.red,   0), style=plot.style_linebr)
+plot(pocVal,   "Volume POC",  color=color.new(color.blue,  0), style=plot.style_linebr)
+plot(rsiVal,   "RSI",         display=display.none)  // alert-only
+plot(stochKsm, "K",           display=display.none)
+plot(eqlHit ? 1 : 0, "EQL Signal", display=display.none)
+
+// Visual: background on Equal Lows
+bgcolor(eqlHit ? color.new(color.orange, 80) : na)

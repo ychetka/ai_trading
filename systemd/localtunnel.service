@@ -1,0 +1,19 @@
+# Copyright (c) 2026 Alexandr Varenic / ychetka. All rights reserved.
+# Licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).
+# For commercial use, please contact the author.
+
+[Unit]
+Description=Localtunnel for n8n webhook (port 5678)
+After=rootless-docker.service
+
+[Service]
+Type=simple
+# DECOMMISSIONED — no public ingress; kept for reference.
+ExecStart=%h/.nvm/versions/node/v24.21.0/bin/lt --port 5678 --subdomain your-subdomain
+Restart=always
+RestartSec=15
+Environment=PATH=%h/.nvm/versions/node/v24.21.0/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=%h
+
+[Install]
+WantedBy=default.target

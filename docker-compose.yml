@@ -1,0 +1,33 @@
+# Copyright (c) 2026 Alexandr Varenic / ychetka. All rights reserved.
+# Licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).
+# For commercial use, please contact the author.
+
+name: crypto-analyst
+
+volumes:
+  n8n_storage:
+    external: false
+
+services:
+  n8n:
+    image: n8n-local:latest
+    container_name: n8n-crypto-bot
+    restart: always
+    network_mode: host
+    user: "0"
+    security_opt:
+      - apparmor=unconfined
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=production
+      # Public ingress is decommissioned; webhooks are LAN/localhost-only.
+      # WEBHOOK_URL=https://your-domain.example/
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false
+      - N8N_RUNNERS_ENABLED=true
+      - NODE_FUNCTION_ALLOW_BUILTIN=fs
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_SECURE_COOKIE=false
+    volumes:
+      - n8n_storage:/home/node/.n8n

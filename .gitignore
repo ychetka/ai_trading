@@ -1,0 +1,40 @@
+# Copyright (c) 2026 Alexandr Varenic / ychetka. All rights reserved.
+# Licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).
+# For commercial use, please contact the author.
+
+# ── Docker data root (images, volumes, n8n sqlite with credentials) ──
+docker-data/
+
+# ── Docker toolchain binaries (fetched via fetch_image.py) ──
+docker-static/docker/
+docker-static/docker-rootless-extras/
+docker-static/slirp4netns
+docker-static/run/
+docker-static/*.log
+docker-static/*.pid
+
+# ── Caddy runtime (binary, LE certificates, autosave) ──
+caddy/caddy
+caddy/caddy.tar.gz
+caddy/config/
+caddy/data/
+
+# ── sslh binaries (only sslh.cfg is tracked) ──
+sslh/sslh
+sslh/libconfig.so.*
+
+# ── Secrets & runtime artifacts ──
+.env
+.env.*
+*.sqlite
+*.sqlite-journal
+watchlist*.json
+node_modules/
+quant-partner/
+
+# ── OS noise ──
+.DS_Store
+Thumbs.db
+
+# klines cache for the deep backtest (re-downloadable)
+data/

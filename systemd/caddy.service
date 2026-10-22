@@ -1,0 +1,19 @@
+# Copyright (c) 2026 Alexandr Varenic / ychetka. All rights reserved.
+# Licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).
+# For commercial use, please contact the author.
+
+[Unit]
+Description=Caddy HTTPS reverse proxy for n8n webhooks (:8443 -> :5678)
+After=network-online.target rootless-docker.service
+
+[Service]
+Type=simple
+ExecStart=%h/projects/trade-ai-analitic/caddy/caddy run --config %h/projects/trade-ai-analitic/caddy/Caddyfile
+Restart=always
+RestartSec=10
+Environment=HOME=%h
+Environment=XDG_DATA_HOME=%h/projects/trade-ai-analitic/caddy/data
+Environment=XDG_CONFIG_HOME=%h/projects/trade-ai-analitic/caddy/config
+
+[Install]
+WantedBy=default.target

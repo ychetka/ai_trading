@@ -1,0 +1,21 @@
+# Copyright (c) 2026 Alexandr Varenic / ychetka. All rights reserved.
+# Licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).
+# For commercial use, please contact the author.
+
+{
+	# [DECOMMISSIONED ingress — kept for history]
+	# external 443 is taken by SSTP VPN -> serve HTTPS on 8443,
+	# HTTP on 8080 is only for the Let's Encrypt HTTP-01 challenge
+	http_port 8080
+	https_port 8443
+}
+
+your-domain.example {
+	@hooks path /webhook/* /webhook-test/*
+	handle @hooks {
+		reverse_proxy 127.0.0.1:5678
+	}
+	handle {
+		respond "Not found" 404
+	}
+}

@@ -1,0 +1,17 @@
+# Copyright (c) 2026 Alexandr Varenic / ychetka. All rights reserved.
+# Licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).
+# For commercial use, please contact the author.
+
+[Unit]
+Description=sslh SNI multiplexer (443 -> Caddy/SSTP)
+After=network-online.target caddy.service
+Wants=caddy.service
+
+[Service]
+Environment=LD_LIBRARY_PATH=%h/projects/trade-ai-analitic/sslh
+ExecStart=%h/projects/trade-ai-analitic/sslh/sslh -f -F %h/projects/trade-ai-analitic/sslh/sslh.cfg
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
