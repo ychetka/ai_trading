@@ -38,3 +38,4 @@ Thumbs.db
 
 # klines cache for the deep backtest (re-downloadable)
 data/
+data/
