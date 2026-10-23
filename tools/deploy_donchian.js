@@ -13,6 +13,14 @@ const arg = k => (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('
 const DB = arg('db') || path.join(__dirname, '..', 'docker-data',
   'volumes/crypto-analyst_n8n_storage/_data/.n8n/database.sqlite');
 
+// Real Telegram chat id is a deploy-time secret: read it from the
+// untracked ./ENV file (TG_CHAT_ID=...) or the process env; the repo
+// keeps the YOUR_CHAT_ID placeholder in the node params.
+const envFile = p => { try { return fs.readFileSync(p,'utf8'); } catch { return ''; } };
+const ENV_TXT = envFile(path.join(__dirname,'..','ENV')) || envFile(path.join(__dirname,'..','.env'));
+const TG_CHAT_ID = process.env.TG_CHAT_ID ||
+  (ENV_TXT.match(/^\s*TG_CHAT_ID\s*=\s*"?([^"\n]+)"?/m) || [])[1] || 'YOUR_CHAT_ID';
+
 const WF_ID = crypto.randomUUID().slice(0, 16);
 const VER_ID = crypto.randomUUID();
 const HOOK_ID = crypto.randomUUID();
@@ -298,7 +306,7 @@ const nodes = [
   },
   {
     parameters: {
-      resource: 'message', operation: 'sendMessage', chatId: 'YOUR_CHAT_ID',
+      resource: 'message', operation: 'sendMessage', chatId: TG_CHAT_ID,
       text: '={{ $json.digest }}',
       additionalFields: { parse_mode: 'HTML' }
     },
