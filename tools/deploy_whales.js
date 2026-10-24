@@ -83,6 +83,15 @@ for(const addr of st.addrs){
 st.wallets=cur;
 
 // ---------- 3. cluster detection (same coin, same direction, K wallets) ----------
+// top-5 coins by open interest are consensus background, not signal -
+// every tracked wallet touches them. Cluster alerts skip them.
+let majors=new Set();
+const m=await post('https://api.hyperliquid.xyz/info',{type:'metaAndAssetCtxs'});
+if(m&&m[0]&&m[1]){
+  const uni=m[0].universe||[],ctxs=m[1]||[];
+  majors=new Set(uni.map((u,i)=>({c:u.name,oi:(+ctxs[i].openInterest||0)*(+ctxs[i].markPx||1)}))
+    .sort((a,b)=>b.oi-a.oi).slice(0,5).map(x=>x.c));
+}
 const byCoin={};
 for(const addr of st.addrs)
   for(const[coin,p]of Object.entries(cur[addr]||{})){
@@ -93,11 +102,12 @@ for(const addr of st.addrs)
   }
 const alerts=[];
 for(const[k,c]of Object.entries(byCoin)){
+  const[coin,dir]=k.split(':');
+  if(majors.has(coin))continue;                 // top-5 OI = consensus, skip
   if(c.n<CLUSTER_K||c.usd<CLUSTER_USD)continue;
   const was=st.clusters[k];
   if(was&&was.n>=c.n&&Date.now()-was.ts<6*3600e3)continue;   // already reported, still alive
   st.clusters[k]={n:c.n,usd:c.usd,ts:Date.now()};
-  const[coin,dir]=k.split(':');
   alerts.push({type:'cluster',coin,dir,n:c.n,usd:Math.round(c.usd),wallets:c.addrs.slice(0,6),ts:Date.now()});
 }
 for(const k of Object.keys(st.clusters))
