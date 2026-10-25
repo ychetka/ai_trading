@@ -20,7 +20,7 @@ Version: 2026-10-06. No marketing numbers — estimates from real mechanics.
 1. **Our niche confirmed (at the time):** high R:R from entry precision,
    not trade frequency. Main risk was not order math (closed in
    v4.1–v4.3) but the SMC data source. — NOTE: this conclusion was
-   later overturned; deep-history backtests falsified the SMC family
+   later overturned; deep-history backtests rejected the SMC family
    (see STRATEGY.md). Trend-following — the "antagonist" in this table —
    became the production strategy.
 2. **Trend Following is not a competitor but a safety:** strong trend +

@@ -7,7 +7,7 @@ For commercial use, please contact the author.
 # [ARCHIVED] System spec: SMC AI Analyst v3
 ## "Sniper AI Risk Radar" — Mean Reversion & Liquidity Sweeps
 
-> Retired. Deactivated 2026-10-23 after deep-history backtests falsified
+> Retired. Deactivated 2026-10-23 after deep-history backtests rejected
 > the SMC mean-reversion family. Kept for history — see STRATEGY.md.
 
 Doc version: 3.0 (October 2026)
