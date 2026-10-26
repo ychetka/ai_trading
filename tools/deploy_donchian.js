@@ -368,4 +368,4 @@ db.close();
 
 const snapshot = { name: 'Donchian Scanner (info) v4.5.1', nodes, connections };
 fs.writeFileSync(path.join(__dirname, '..', 'workflow-donchian.json'),
-  JSON.stringify(snapshot, null, 2).replaceAll(TG_CHAT_ID, 'YOUR_CHAT_ID'));
+  JSON.stringify(snapshot, null, 2));
