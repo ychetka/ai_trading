@@ -100,6 +100,16 @@ for(const addr of st.addrs)
     (byCoin[k]=byCoin[k]||{n:0,usd:0,addrs:[]});
     byCoin[k].n++;byCoin[k].usd+=p.usd;byCoin[k].addrs.push(addr.slice(0,8));
   }
+// Bybit tickers -> funding rate per symbol (single bulk call)
+const tick=await get('https://api.bybit.com/v5/market/tickers?category=linear');
+const fund={};
+for(const t of (tick&&tick.result&&tick.result.list)||[]){
+  const s=t.symbol.replace(/USDT$/,'');
+  fund[s]=+t.fundingRate;
+  const m=s.match(/^1000(.+)$/);
+  if(m)fund['k'+m[1]]=+t.fundingRate;   // HL k-prefix alias: kPEPE -> 1000PEPE
+}
+
 const alerts=[];
 for(const[k,c]of Object.entries(byCoin)){
   const[coin,dir]=k.split(':');
@@ -108,7 +118,12 @@ for(const[k,c]of Object.entries(byCoin)){
   const was=st.clusters[k];
   if(was&&was.n>=c.n&&Date.now()-was.ts<6*3600e3)continue;   // already reported, still alive
   st.clusters[k]={n:c.n,usd:c.usd,ts:Date.now()};
-  alerts.push({type:'cluster',coin,dir,n:c.n,usd:Math.round(c.usd),wallets:c.addrs.slice(0,6),ts:Date.now()});
+  const f=fund[coin];
+  // paid-to-hold side = basis-arb carry; paying side = directional
+  const carry=(dir==='S'&&f>0)||(dir==='L'&&f<0);
+  alerts.push({type:'cluster',coin,dir,n:c.n,usd:Math.round(c.usd),
+    funding:f===undefined?null:f,carry:f===undefined?null:carry,
+    wallets:c.addrs.slice(0,6),ts:Date.now()});
 }
 for(const k of Object.keys(st.clusters))
   if(!byCoin[k]||byCoin[k].n<CLUSTER_K)delete st.clusters[k];   // cluster dissolved
@@ -121,8 +136,10 @@ try{fs.writeFileSync(STATE,JSON.stringify(st));}catch(e){}
 alerts.sort((a,b)=>b.usd-a.usd);
 const lines=[];
 for(const a of alerts){
-  const line='<b>WHALE CLUSTER '+(a.dir==='L'?'LONG':'SHORT')+' '+a.coin+'</b>\n'+
-    a.n+' wallets, ~$'+(a.usd/1e6).toFixed(2)+'M combined\n'+a.wallets.join(', ');
+  const tag=a.carry===null?'':a.carry?' [carry?]':' [directional]';
+  const line='<b>WHALE CLUSTER '+(a.dir==='L'?'LONG':'SHORT')+' '+a.coin+'</b>'+tag+'\n'+
+    a.n+' wallets, ~$'+(a.usd/1e6).toFixed(2)+'M combined'+
+    (a.funding===null?'':' | funding '+(a.funding*100).toFixed(3)+'%')+'\n'+a.wallets.join(', ');
   if(lines.join('\n\n').length+line.length>3200)break;
   lines.push(line);
 }
