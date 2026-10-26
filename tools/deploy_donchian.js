@@ -7,8 +7,8 @@
 // into the n8n SQLite DB per the version-pointer procedure (three pointers).
 // Run with the n8n container STOPPED.
 //   node tools/deploy_donchian.js [--db=/path/database.sqlite]
-const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
+const { deployWorkflow } = require('./lib/n8n-sqlite-deployer');
 const arg = k => (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1];
 const DB = arg('db') || path.join(__dirname, '..', 'docker-data',
   'volumes/crypto-analyst_n8n_storage/_data/.n8n/database.sqlite');
@@ -21,8 +21,6 @@ const ENV_TXT = envFile(path.join(__dirname,'..','ENV')) || envFile(path.join(__
 const TG_CHAT_ID = process.env.TG_CHAT_ID ||
   (ENV_TXT.match(/^\s*TG_CHAT_ID\s*=\s*"?([^"\n]+)"?/m) || [])[1] || 'YOUR_CHAT_ID';
 
-const WF_ID = crypto.randomUUID().slice(0, 16);
-const VER_ID = crypto.randomUUID();
 const HOOK_ID = crypto.randomUUID();
 
 const jsCode = String.raw`
@@ -322,50 +320,10 @@ const connections = {
 };
 
 const now = new Date().toISOString().replace('T', ' ').slice(0, 23);
-const UPDATE = process.argv.includes('--update');
-const db = new DatabaseSync(DB);
-db.exec('BEGIN');
-if (UPDATE) {
-  const wf = db.prepare(`SELECT id FROM workflow_entity WHERE name LIKE 'Donchian%'`).get();
-  if (!wf) { console.error('workflow not found — run without --update first'); process.exit(1); }
-  db.prepare(`INSERT INTO workflow_history
-    (versionId,workflowId,authors,createdAt,updatedAt,nodes,connections,name,autosaved)
-    VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(VER_ID, wf.id, 'deploy_donchian.js --update', now, now,
-      JSON.stringify(nodes), JSON.stringify(connections),
-      'Donchian Scanner (info) v4.5.1', 0);
-  db.prepare(`UPDATE workflow_entity SET nodes=?,connections=?,versionId=?,activeVersionId=?,updatedAt=? WHERE id=?`)
-    .run(JSON.stringify(nodes), JSON.stringify(connections), VER_ID, VER_ID, now, wf.id);
-  db.prepare(`UPDATE workflow_published_version SET publishedVersionId=?,updatedAt=? WHERE workflowId=?`)
-    .run(VER_ID, now, wf.id);
-  db.prepare(`UPDATE workflow_publication_trigger_status SET versionId=?,updatedAt=? WHERE workflowId=?`)
-    .run(VER_ID, now, wf.id);
-  console.log('updated workflow', wf.id, 'version', VER_ID);
-} else {
-  // cyclic FK entity<->history: insert entity with NULL, then history, then UPDATE
-  db.prepare(`INSERT INTO workflow_entity
-    (id,name,active,nodes,connections,settings,versionId,triggerCount,createdAt,updatedAt,isArchived,versionCounter,activeVersionId)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL)`)
-    .run(WF_ID, 'Donchian Scanner (info) v4.5.1', 1,
-      JSON.stringify(nodes), JSON.stringify(connections),
-      JSON.stringify({ executionOrder: 'v1' }), VER_ID, 0, now, now, 0, 1);
-  db.prepare(`INSERT INTO workflow_history
-    (versionId,workflowId,authors,createdAt,updatedAt,nodes,connections,name,autosaved)
-    VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(VER_ID, WF_ID, 'deploy_donchian.js', now, now,
-      JSON.stringify(nodes), JSON.stringify(connections),
-      'Donchian Scanner (info) v4.5.1', 0);
-  db.prepare(`UPDATE workflow_entity SET activeVersionId=? WHERE id=?`)
-    .run(VER_ID, WF_ID);
-  db.prepare(`INSERT INTO workflow_published_version
-    (workflowId,publishedVersionId,createdAt,updatedAt)
-    VALUES (?,?,?,?)`)
-    .run(WF_ID, VER_ID, now, now);
-  console.log('inserted workflow', WF_ID, 'version', VER_ID);
-}
-db.exec('COMMIT');
-db.close();
-
-const snapshot = { name: 'Donchian Scanner (info) v4.5.1', nodes, connections };
-fs.writeFileSync(path.join(__dirname, '..', 'workflow-donchian.json'),
-  JSON.stringify(snapshot, null, 2));
+deployWorkflow({
+  dbPath: DB, name: 'Donchian Scanner (info) v4.5.1', matchLike: 'Donchian%',
+  nodes, connections, author: 'deploy_donchian.js',
+  hooks: [['donchian', 'POST', 'Donchian Webhook']],
+  triggers: [['d-sch', 'in-memory'], ['d-hook', 'persisted'], ['d-code', 'persisted'], ['d-tg', 'persisted']],
+  snapshotPath: path.join(__dirname, '..', 'workflow-donchian.json'),
+});
