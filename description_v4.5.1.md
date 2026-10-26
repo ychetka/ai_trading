@@ -5,7 +5,7 @@ For commercial use, please contact the author.
 -->
 
 # System spec: v4.5.1
-## "Donchian Info-Forward" — the trend pivot after SMC-MR falsification
+## "Donchian Info-Forward" — the trend pivot after the SMC-MR rejection
 ### Delta vs v4.5 (see archive/docs/description_v4.5.md for the engine base)
 
 Version: 4.5.1 (October 2026)
@@ -14,7 +14,7 @@ Status: deployed, info-mode. Real orders are FORBIDDEN.
 ## Strategic context
 
 Deep validation (37k armed signals, 12 majors, 2021→2026, 6 years)
-falsified the whole SMC mean-reversion family: the best cell
+rejected the whole SMC mean-reversion family: the best cell
 (bull+panic) = −0.01R/trade before fees. The edge turned out to be
 clustered noise (N_eff≈6 episodes), not structure.
 
@@ -27,7 +27,7 @@ Details and matrices — STRATEGY.md.
 
 ```
 ┌─ SMC AI Analyst + SMC Screener — DEACTIVATED (active=0) ────────┐
-│  Both workflows switched off 2026-10-23 after SMC-MR falsified. │
+│  Both workflows switched off 2026-10-23 after SMC-MR rejected. │
 │  Snapshots: archive/workflows/, code: archive/tools/.           │
 └──────────────────────────────────────────────────────────────────┘
 ┌─ Donchian Scanner (info) v4.5.1 — the ONLY active workflow ─────┐
