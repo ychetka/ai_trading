@@ -103,8 +103,12 @@ for(const addr of st.addrs)
 // Bybit tickers -> funding rate per symbol (single bulk call)
 const tick=await get('https://api.bybit.com/v5/market/tickers?category=linear');
 const fund={};
-for(const t of (tick&&tick.result&&tick.result.list)||[])
-  fund[t.symbol.replace(/USDT$/,'')]=+t.fundingRate;
+for(const t of (tick&&tick.result&&tick.result.list)||[]){
+  const s=t.symbol.replace(/USDT$/,'');
+  fund[s]=+t.fundingRate;
+  const m=s.match(/^1000(.+)$/);
+  if(m)fund['k'+m[1]]=+t.fundingRate;   // HL k-prefix alias: kPEPE -> 1000PEPE
+}
 
 const alerts=[];
 for(const[k,c]of Object.entries(byCoin)){
