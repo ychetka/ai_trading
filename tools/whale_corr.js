@@ -63,6 +63,16 @@ const at = (bars, ts) => {
   return best;
 };
 
+// last settled funding rate at/before ts (8h periods)
+async function fundingAt(sym, ts) {
+  const res = await api(`/v5/market/funding/history?category=linear&symbol=${sym}` +
+    `&startTime=${ts - 16 * H}&endTime=${ts}&limit=5`);
+  const list = res && res.list || [];
+  if (!list.length) return null;
+  list.sort((a, b) => +b.fundingRateTimestamp - +a.fundingRateTimestamp);
+  return +list[0].fundingRate;
+}
+
 (async () => {
   const rows = fs.readFileSync(EV, 'utf8').trim().split('\n').map(JSON.parse);
   const evts = rows.filter(r => r.type === TYPE);
@@ -85,6 +95,8 @@ const at = (bars, ts) => {
     if (!p0) { out.push({ ...r, skip: 'no base' }); continue; }
     const b0 = at(btc, r.ts);
     const rec = { coin: r.coin, dir: r.dir, n: r.n, usd: r.usd, ts: r.ts };
+    rec.funding = await fundingAt(r.coin + 'USDT', r.ts);
+    await sleep(60);
     for (const h of [1, 4, 8, 24]) {
       const px = at(bars, r.ts + h * H), bx = b0 && at(btc, r.ts + h * H);
       rec['r' + h] = px ? (px.c / p0.c - 1) * 100 : null;
@@ -114,6 +126,22 @@ const at = (bars, ts) => {
   for (const h of [4, 8]) {
     stat(`usd>=1M raw +${h}h`, big, 'r' + h);
     stat(`usd<1M  raw +${h}h`, small, 'r' + h);
+  }
+  // funding split: paid-to-hold side = basis-arb carry; paying side = directional
+  console.log('--- funding split (paid = carry/arb, paying = directional) ---');
+  const arb = ok.filter(r => r.funding !== null &&
+    ((r.dir === 'S' && r.funding > 0) || (r.dir === 'L' && r.funding < 0)));
+  const dir = ok.filter(r => r.funding !== null &&
+    ((r.dir === 'S' && r.funding <= 0) || (r.dir === 'L' && r.funding >= 0)));
+  const nof = ok.filter(r => r.funding === null);
+  for (const [tag, arr] of [['CARRY (paid)', arb], ['DIRECTIONAL (paying)', dir], ['no funding data', nof]])
+    for (const h of [8, 24]) { stat(`${tag} raw +${h}h`, arr, 'r' + h); stat(`${tag} adj +${h}h`, arr, 'a' + h); }
+  const cov = ok.filter(r => r.funding !== null).length;
+  console.log(`funding coverage: ${cov}/${ok.length}`);
+  const dirS = dir.filter(r => r.dir === 'S'), arbS = arb.filter(r => r.dir === 'S');
+  for (const h of [8, 24]) {
+    stat(`DIR_S only raw +${h}h`, dirS, 'r' + h);
+    stat(`ARB_S only raw +${h}h`, arbS, 'r' + h);
   }
   fs.writeFileSync(path.join(ROOT, 'data', 'whale_corr_out.json'), JSON.stringify(out, null, 1));
   console.log('detail -> data/whale_corr_out.json');
