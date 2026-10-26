@@ -241,5 +241,6 @@ db.exec('COMMIT');
 db.close();
 
 fs.writeFileSync(path.join(__dirname, '..', 'workflow-whales.json'),
-  JSON.stringify({ name: 'Whales Monitor (svc)', nodes, connections }, null, 2));
+  JSON.stringify({ name: 'Whales Monitor (svc)', nodes, connections }, null, 2)
+    .replaceAll(TG_CHAT_ID, 'YOUR_CHAT_ID'));   // never snapshot the real chat id
 console.log('snapshot -> workflow-whales.json');
