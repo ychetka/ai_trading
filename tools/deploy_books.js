@@ -16,7 +16,7 @@ const arg = k => (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('
 const DB = arg('db') || path.join(__dirname, '..', 'docker-data',
   'volumes/crypto-analyst_n8n_storage/_data/.n8n/database.sqlite');
 
-const H1 = crypto.randomUUID(), H2 = crypto.randomUUID(), H3 = crypto.randomUUID();
+const H1 = crypto.randomUUID(), H2 = crypto.randomUUID(), H3 = crypto.randomUUID(), H4 = crypto.randomUUID();
 
 // ---------- shared adapter code (used by the live node and the collector) ----------
 const ADAPTERS = String.raw`
@@ -59,7 +59,7 @@ const jobsFor=sym=>{
 const snapAll=async sym=>{
   const jobs=jobsFor(sym),names=Object.keys(jobs);
   const res=await Promise.allSettled(names.map(n=>jobs[n]()));
-  const venues={},wallsA=[],wallsB=[],failed=[],unlisted=[];
+  const venues={},wallsA=[],wallsB=[];
   let tb1=0,ta1=0,tb3=0,ta3=0;const mids=[];
   names.forEach((n,i)=>{
     const v=res[i].status==='fulfilled'?res[i].value:null;
@@ -68,15 +68,12 @@ const snapAll=async sym=>{
     if(s){tb1+=s.b1;ta1+=s.a1;tb3+=s.b3;ta3+=s.a3;mids.push(s.mid);
       s.topA.forEach(w=>wallsA.push([w[0],w[1],n]));
       s.topB.forEach(w=>wallsB.push([w[0],w[1],n]));}
-    else if(res[i].status==='rejected')failed.push(n);   // real fetch error
-    else unlisted.push(n);                               // resolved, no book = not listed there
   });
   wallsA.sort((a,b)=>b[1]-a[1]);wallsB.sort((a,b)=>b[1]-a[1]);
   const mid=mids.length?+(mids.reduce((x,y)=>x+y)/mids.length).toPrecision(7):null;
   return{sym,ts:Date.now(),
     agg:{mid,b1:tb1,a1:ta1,b3:tb3,a3:ta3,
          imb:+(tb1/Math.max(ta1,1)).toFixed(2),nVenues:mids.length,
-         degraded:failed.length>0,failed,unlisted,
          wallsA:wallsA.slice(0,10),wallsB:wallsB.slice(0,10)},
     venues};
 };
@@ -106,16 +103,74 @@ for(const sym of syms){
   }catch(e){}
   await new Promise(r=>setTimeout(r,300));
 }
+// wall persistence tracker: snapshot walls -> absolute-price chains (issue #25)
+// (runs BEFORE the history append so persistWalls lands in the JSONL record)
+const WST='/home/node/.n8n/walls_state.json', WEV='/home/node/.n8n/wall_events.jsonl';
+const ws=(()=>{try{return JSON.parse(fs.readFileSync(WST,'utf8'));}catch(e){return{chains:[]};}})();
+ws.chains=ws.chains||[];
+const WMIN=500000,WDIST=0.3,WBAND=0.75,WTOUCH=0.35;
+const wEvents=[];
+for(const r of rows){
+  const mid=r.agg.mid;if(!mid)continue;
+  const wl=[...(r.agg.wallsA||[]).map(w=>({side:'A',pct:w[0],usd:w[1]})),
+            ...(r.agg.wallsB||[]).map(w=>({side:'B',pct:w[0],usd:w[1]}))]
+    .filter(w=>w.usd>=WMIN&&Math.abs(w.pct)>=WDIST)
+    .map(w=>({...w,px:mid*(1+w.pct/100)}));
+  const seen=new Set();
+  for(const w of wl){
+    let best=null,bd=1e9;
+    ws.chains.forEach((c,j)=>{
+      if(c.sym!==r.sym||c.side!==w.side||seen.has(j))return;
+      const d=Math.abs(w.px/c.px-1)*100;
+      if(d<bd){best=j;bd=d;}});
+    if(best!==null&&bd<=WBAND){seen.add(best);const c=ws.chains[best];
+      c.lastSeen=r.ts;c.n=(c.n||1)+1;c.usdMax=Math.max(c.usdMax||0,w.usd);}
+    else ws.chains.push({sym:r.sym,side:w.side,px:w.px,usdMax:w.usd,start:r.ts,lastSeen:r.ts,n:1,touched:false});
+  }
+  for(let j=ws.chains.length-1;j>=0;j--){
+    const c=ws.chains[j];
+    if(c.sym!==r.sym)continue;
+    if(Math.abs(mid/c.px-1)*100<=WTOUCH)c.touched=true;
+    let out=null;
+    if(c.side==='A'&&mid>c.px)out='break';
+    else if(c.side==='B'&&mid<c.px)out='break';
+    else if(c.lastSeen<r.ts)out=c.touched?'hold':'pull';
+    if(out){
+      wEvents.push({type:'wall',sym:c.sym,side:c.side,px:+c.px.toPrecision(7),usd:c.usdMax,
+        persistMin:Math.round((c.lastSeen-c.start)/60000)+15,touched:c.touched,outcome:out,ts:r.ts});
+      ws.chains.splice(j,1);
+    }
+  }
+  r.agg.persistWalls=ws.chains.filter(c=>c.sym===r.sym)
+    .map(c=>({side:c.side,px:+c.px.toPrecision(7),usd:c.usdMax,persistMin:Math.round((r.ts-c.start)/60000)+15}))
+    .filter(c=>c.persistMin>=120);
+}
+// staleness: chains for symbols no longer scanned never refresh - close them
+const scanned=new Set(rows.map(r=>r.sym));
+const nowT=rows.length?rows[rows.length-1].ts:Date.now();
+for(let j=ws.chains.length-1;j>=0;j--){
+  const c=ws.chains[j];
+  if(scanned.has(c.sym))continue;
+  if(nowT-c.lastSeen>120*60000){
+    wEvents.push({type:'wall',sym:c.sym,side:c.side,px:+c.px.toPrecision(7),usd:c.usdMax,
+      persistMin:Math.round((c.lastSeen-c.start)/60000)+15,touched:!!c.touched,outcome:'pull',ts:nowT});
+    ws.chains.splice(j,1);
+  }
+}
 if(rows.length)fs.appendFileSync(HIST,rows.map(r=>JSON.stringify(r)).join('\n')+'\n');
+if(wEvents.length)try{fs.appendFileSync(WEV,wEvents.map(e=>JSON.stringify(e)).join('\n')+'\n');}catch(e){}
+try{fs.writeFileSync(WST+'.tmp',JSON.stringify({chains:ws.chains.slice(-400)}));fs.renameSync(WST+'.tmp',WST);}catch(e){}
 // rotation: once a day drop everything older than 30 days
 const day=new Date().toISOString().slice(0,10);
 const st=(()=>{try{return JSON.parse(fs.readFileSync(SVC,'utf8'));}catch(e){return{};}})();
 if(st.pruneDay!==day){
   try{
     const cut=Date.now()-30*86400e3;
-    const lines=fs.readFileSync(HIST,'utf8').split('\n').filter(l=>{
-      if(!l)return false;try{return JSON.parse(l).ts>cut;}catch(e){return false;}});
-    fs.writeFileSync(HIST,lines.join('\n')+(lines.length?'\n':''));
+    for(const f of [HIST,WEV])try{
+      const lines=fs.readFileSync(f,'utf8').split('\n').filter(l=>{
+        if(!l)return false;try{return JSON.parse(l).ts>cut;}catch(e){return false;}});
+      fs.writeFileSync(f,lines.join('\n')+(lines.length?'\n':''));
+    }catch(e){}
   }catch(e){}
   st.pruneDay=day;fs.writeFileSync(SVC,JSON.stringify(st));
 }
@@ -223,6 +278,25 @@ live();hist();
 </script></body></html>`;
 const codeUI = 'const html=' + JSON.stringify(HTML_PAGE) + ';return[{json:{html}}];';
 
+// ---------- node 5: persistent walls ----------
+const codeWalls = String.raw`
+const fs=require('fs');
+const q=$input.first().json.query||{};
+const want=(q.symbol||'').toUpperCase();
+const minMin=+q.minMin>0?+q.minMin:120;
+let ws={chains:[]};
+try{ws=JSON.parse(fs.readFileSync('/home/node/.n8n/walls_state.json','utf8'));}catch(e){}
+const now=Date.now();
+let active=(ws.chains||[]).map(c=>({...c,persistMin:Math.round((now-c.start)/60000)+15}));
+if(want)active=active.filter(c=>c.sym===want);
+active=active.filter(c=>c.persistMin>=minMin).sort((a,b)=>b.persistMin-a.persistMin);
+let events=[];
+try{for(const l of fs.readFileSync('/home/node/.n8n/wall_events.jsonl','utf8').split('\n')){
+  if(!l)continue;try{events.push(JSON.parse(l));}catch(e){}}}catch(e){}
+if(want)events=events.filter(e=>e.sym===want);
+return[{json:{active,activeCount:active.length,recentEvents:events.slice(-100)}}];
+`;
+
 const nodes = [
   {
     parameters: { rule: { interval: [{ field: 'minutes', minutesInterval: 15 }] } },
@@ -269,6 +343,16 @@ const nodes = [
       options: { responseHeaders: { entries: [{ name: 'Content-Type', value: 'text/html; charset=utf-8' }] } } },
     id: 'b-resp', name: 'Respond HTML',
     type: 'n8n-nodes-base.respondToWebhook', typeVersion: 1.2, position: [60, 440]
+  },
+  {
+    parameters: { httpMethod: 'GET', path: 'book-walls', responseMode: 'lastNode', options: {}, webhookId: H4 },
+    id: 'b-wall-hook', name: 'Wall Webhook',
+    type: 'n8n-nodes-base.webhook', typeVersion: 2, position: [-400, 640], webhookId: H4
+  },
+  {
+    parameters: { jsCode: codeWalls },
+    id: 'b-wall', name: 'Wall Code',
+    type: 'n8n-nodes-base.code', typeVersion: 2, position: [-160, 640]
   }
 ];
 const connections = {
@@ -276,7 +360,8 @@ const connections = {
   'Books Webhook': { main: [[{ node: 'Books Aggregator', type: 'main', index: 0 }]] },
   'History Webhook': { main: [[{ node: 'History Code', type: 'main', index: 0 }]] },
   'UI Webhook': { main: [[{ node: 'UI Page', type: 'main', index: 0 }]] },
-  'UI Page': { main: [[{ node: 'Respond HTML', type: 'main', index: 0 }]] }
+  'UI Page': { main: [[{ node: 'Respond HTML', type: 'main', index: 0 }]] },
+  'Wall Webhook': { main: [[{ node: 'Wall Code', type: 'main', index: 0 }]] }
 };
 
 deployWorkflow({
@@ -286,11 +371,13 @@ deployWorkflow({
     ['book', 'GET', 'Books Webhook'],
     ['book-history', 'GET', 'History Webhook'],
     ['books-ui', 'GET', 'UI Webhook'],
+    ['book-walls', 'GET', 'Wall Webhook'],
   ],
   triggers: [
     ['b-sch', 'in-memory'], ['b-hook', 'persisted'], ['b-hist-hook', 'persisted'],
-    ['b-ui-hook', 'persisted'], ['b-collect', 'persisted'], ['b-code', 'persisted'],
-    ['b-hist', 'persisted'], ['b-ui', 'persisted'], ['b-resp', 'persisted'],
+    ['b-ui-hook', 'persisted'], ['b-wall-hook', 'persisted'], ['b-collect', 'persisted'],
+    ['b-code', 'persisted'], ['b-hist', 'persisted'], ['b-ui', 'persisted'],
+    ['b-wall', 'persisted'], ['b-resp', 'persisted'],
   ],
   snapshotPath: path.join(__dirname, '..', 'workflow-books.json'),
 });
