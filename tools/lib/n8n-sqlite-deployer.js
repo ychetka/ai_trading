@@ -58,10 +58,14 @@ function guardSchema(db, allowDrift) {
 }
 
 // File-level backup before any write; keeps the newest `keep` backups.
+// Copies -wal/-shm too: a dirty WAL after unclean shutdown otherwise
+// silently drops the newest committed pages from the backup.
 function backupDb(dbPath, keep = 10) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const bak = `${dbPath}.bak.${stamp}`;
   fs.copyFileSync(dbPath, bak);
+  for (const ext of ['-wal', '-shm'])
+    try { fs.copyFileSync(dbPath + ext, bak + ext); } catch {}
   const dir = path.dirname(dbPath), base = path.basename(dbPath) + '.bak.';
   fs.readdirSync(dir).filter(f => f.startsWith(base)).sort()
     .slice(0, Math.max(0, fs.readdirSync(dir).filter(f => f.startsWith(base)).length - keep))
