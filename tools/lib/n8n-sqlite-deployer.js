@@ -66,10 +66,14 @@ function backupDb(dbPath, keep = 10) {
   fs.copyFileSync(dbPath, bak);
   for (const ext of ['-wal', '-shm'])
     try { fs.copyFileSync(dbPath + ext, bak + ext); } catch {}
+  // retention by backup set, not by file: one stamp = one .bak/-wal/-shm triplet
   const dir = path.dirname(dbPath), base = path.basename(dbPath) + '.bak.';
-  fs.readdirSync(dir).filter(f => f.startsWith(base)).sort()
-    .slice(0, Math.max(0, fs.readdirSync(dir).filter(f => f.startsWith(base)).length - keep))
-    .forEach(f => { try { fs.unlinkSync(path.join(dir, f)); } catch {} });
+  const re = new RegExp('^' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(.+?)(-wal|-shm)?$');
+  const stamps = [...new Set(fs.readdirSync(dir)
+    .map(f => (f.match(re) || [])[1]).filter(Boolean))].sort();
+  for (const old of stamps.slice(0, Math.max(0, stamps.length - keep)))
+    for (const ext of ['', '-wal', '-shm'])
+      try { fs.unlinkSync(path.join(dir, base + old + ext)); } catch {}
   return bak;
 }
 
