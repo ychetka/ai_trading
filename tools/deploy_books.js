@@ -8,7 +8,7 @@
 //   GET /webhook/book?symbol=X     → live fan-out across 13 venues → agg+venues JSON
 //   GET /webhook/book-history      → stored snapshots (hourly buckets)
 //   GET /webhook/books-ui          → web UI (standalone HTML page)
-//   Schedule 15min                 → collector: universe snapshots → JSONL (30d)
+//   Schedule 15min                 → collector: universe snapshots → JSONL (180d)
 // Run with n8n STOPPED. Deploy: node tools/deploy_books.js
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const { deployWorkflow } = require('./lib/n8n-sqlite-deployer');
@@ -160,12 +160,12 @@ for(let j=ws.chains.length-1;j>=0;j--){
 if(rows.length)fs.appendFileSync(HIST,rows.map(r=>JSON.stringify(r)).join('\n')+'\n');
 if(wEvents.length)try{fs.appendFileSync(WEV,wEvents.map(e=>JSON.stringify(e)).join('\n')+'\n');}catch(e){}
 try{fs.writeFileSync(WST+'.tmp',JSON.stringify({chains:ws.chains.slice(-400)}));fs.renameSync(WST+'.tmp',WST);}catch(e){}
-// rotation: once a day drop everything older than 30 days
+// rotation: once a day drop everything older than 180 days
 const day=new Date().toISOString().slice(0,10);
 const st=(()=>{try{return JSON.parse(fs.readFileSync(SVC,'utf8'));}catch(e){return{};}})();
 if(st.pruneDay!==day){
   try{
-    const cut=Date.now()-30*86400e3;
+    const cut=Date.now()-180*86400e3;
     for(const f of [HIST,WEV])try{
       const lines=fs.readFileSync(f,'utf8').split('\n').filter(l=>{
         if(!l)return false;try{return JSON.parse(l).ts>cut;}catch(e){return false;}});

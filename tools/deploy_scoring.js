@@ -139,11 +139,11 @@ const out={asset:asset||(contract.slice(0,10)+'...'),contract:gpAddr,chain:gpCha
     goplus:gp,defillama:ll,github:gh},
   ts:new Date().toISOString()};
 try{fs.appendFileSync(HIST,JSON.stringify({ts:Date.now(),asset:out.asset,score,verdict:out.verdict,flags:out.flags})+'\n');}catch(e){}
-// rotation: once a day drop history older than 30 days
+// rotation: once a day drop history older than 180 days
 const day=new Date().toISOString().slice(0,10);
 if((cache.pruneDay||'')!==day){
   try{
-    const cut=Date.now()-30*86400e3;
+    const cut=Date.now()-180*86400e3;
     const lines2=fs.readFileSync(HIST,'utf8').split('\n').filter(l=>{
       if(!l)return false;try{return JSON.parse(l).ts>cut;}catch(e){return false;}});
     fs.writeFileSync(HIST,lines2.join('\n')+(lines2.length?'\n':''));
