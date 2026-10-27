@@ -130,11 +130,11 @@ for(const k of Object.keys(st.clusters))
 for(const e of events.concat(alerts))
   try{fs.appendFileSync(HIST,JSON.stringify(e)+'\n');}catch(e2){}
 try{fs.writeFileSync(STATE,JSON.stringify(st));}catch(e){}
-// rotation: once a day drop events older than 30 days
+// rotation: once a day drop events older than 180 days
 const day=new Date().toISOString().slice(0,10);
 if(st.pruneDay!==day){
   try{
-    const cut=Date.now()-30*86400e3;
+    const cut=Date.now()-180*86400e3;
     const lines2=fs.readFileSync(HIST,'utf8').split('\n').filter(l=>{
       if(!l)return false;try{return JSON.parse(l).ts>cut;}catch(e){return false;}});
     fs.writeFileSync(HIST,lines2.join('\n')+(lines2.length?'\n':''));
