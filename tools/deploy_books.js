@@ -8,7 +8,7 @@
 //   GET /webhook/book?symbol=X     → live fan-out across 13 venues → agg+venues JSON
 //   GET /webhook/book-history      → stored snapshots (hourly buckets)
 //   GET /webhook/books-ui          → web UI (standalone HTML page)
-//   Schedule 15min                 → collector: universe snapshots → JSONL (30d)
+//   Schedule 15min                 → collector: universe snapshots → JSONL (180d)
 // Run with n8n STOPPED. Deploy: node tools/deploy_books.js
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const { deployWorkflow } = require('./lib/n8n-sqlite-deployer');
