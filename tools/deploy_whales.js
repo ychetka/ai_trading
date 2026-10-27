@@ -214,7 +214,7 @@ const connections = {
   'Whale History Webhook': { main: [[{ node: 'Whale History', type: 'main', index: 0 }]] }
 };
 
-const r = deployWorkflow({
+deployWorkflow({
   dbPath: DB, name: 'Whales Monitor (svc)',
   nodes, connections, author: 'deploy_whales.js',
   hooks: [['whales', 'GET', 'Whales Webhook'], ['whale-history', 'GET', 'Whale History Webhook']],

@@ -14,4 +14,7 @@ After=rootless-docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=%h/projects/trade-ai-analitic
-ExecStart=/usr/bin/env node tools/heartbeat.js
+Environment=PATH=%h/.nvm/versions/node/v24.18.0/bin:%h/projects/trade-ai-analitic/docker-static/docker:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=%h
+Environment=DOCKER_HOST=unix://%h/projects/trade-ai-analitic/docker-static/run/docker.sock
+ExecStart=%h/.nvm/versions/node/v24.18.0/bin/node tools/heartbeat.js

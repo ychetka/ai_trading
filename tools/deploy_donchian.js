@@ -319,7 +319,6 @@ const connections = {
   'Donchian Monitor': { main: [[{ node: 'Send Donchian', type: 'main', index: 0 }]] }
 };
 
-const now = new Date().toISOString().replace('T', ' ').slice(0, 23);
 deployWorkflow({
   dbPath: DB, name: 'Donchian Scanner (info) v4.5.1', matchLike: 'Donchian%',
   nodes, connections, author: 'deploy_donchian.js',

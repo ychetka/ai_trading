@@ -59,7 +59,7 @@ const jobsFor=sym=>{
 const snapAll=async sym=>{
   const jobs=jobsFor(sym),names=Object.keys(jobs);
   const res=await Promise.allSettled(names.map(n=>jobs[n]()));
-  const venues={},wallsA=[],wallsB=[],failed=[];
+  const venues={},wallsA=[],wallsB=[],failed=[],unlisted=[];
   let tb1=0,ta1=0,tb3=0,ta3=0;const mids=[];
   names.forEach((n,i)=>{
     const v=res[i].status==='fulfilled'?res[i].value:null;
@@ -68,14 +68,15 @@ const snapAll=async sym=>{
     if(s){tb1+=s.b1;ta1+=s.a1;tb3+=s.b3;ta3+=s.a3;mids.push(s.mid);
       s.topA.forEach(w=>wallsA.push([w[0],w[1],n]));
       s.topB.forEach(w=>wallsB.push([w[0],w[1],n]));}
-    else failed.push(n);
+    else if(res[i].status==='rejected')failed.push(n);   // real fetch error
+    else unlisted.push(n);                               // resolved, no book = not listed there
   });
   wallsA.sort((a,b)=>b[1]-a[1]);wallsB.sort((a,b)=>b[1]-a[1]);
   const mid=mids.length?+(mids.reduce((x,y)=>x+y)/mids.length).toPrecision(7):null;
   return{sym,ts:Date.now(),
     agg:{mid,b1:tb1,a1:ta1,b3:tb3,a3:ta3,
          imb:+(tb1/Math.max(ta1,1)).toFixed(2),nVenues:mids.length,
-         degraded:failed.length>0,failed,
+         degraded:failed.length>0,failed,unlisted,
          wallsA:wallsA.slice(0,10),wallsB:wallsB.slice(0,10)},
     venues};
 };

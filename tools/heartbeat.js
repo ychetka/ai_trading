@@ -51,9 +51,9 @@ for (const c of CHECKS) {
 }
 try {
   const out = execSync('docker exec n8n-crypto-bot wget -q -O- --timeout=10 http://localhost:5678/healthz', { timeout: 20000 }).toString();
-  if (!out.includes('"ok"')) stale.push('n8n /healthz: ' + out.slice(0, 80));
+  if (!out.includes('"ok"')) stale.push('n8n-healthz: ' + out.slice(0, 80));
 } catch (e) {
-  stale.push('n8n /healthz unreachable: ' + String(e.message).slice(0, 80));
+  stale.push('n8n-healthz: unreachable ' + String(e.message).slice(0, 80));
 }
 
 let hb = {}; try { hb = JSON.parse(fs.readFileSync(HB_STATE, 'utf8')); } catch {}
@@ -64,11 +64,11 @@ const now = Date.now(), due = stale.filter(s => {
 
 if (!due.length) { console.log('heartbeat ok' + (stale.length ? ' (alerts deduped)' : '')); process.exit(0); }
 
-const msg = '<b>HEARTBEAT ALERT</b>\n' + due.join('\n');
+const msg = 'HEARTBEAT ALERT\n' + due.join('\n');
 const token = env('TG_BOT_TOKEN'), chat = env('TG_CHAT_ID');
 if (!token || !chat) { console.error('ALERT (no TG creds): ' + msg); process.exit(2); }
 
-const body = JSON.stringify({ chat_id: chat, text: msg, parse_mode: 'HTML' });
+const body = JSON.stringify({ chat_id: chat, text: msg });
 const req = https.request({
   hostname: 'api.telegram.org', path: `/bot${token}/sendMessage`, method: 'POST',
   headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
