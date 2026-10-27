@@ -10,7 +10,7 @@
 //   GET /webhook/books-ui          → web UI (standalone HTML page)
 //   Schedule 15min                 → collector: universe snapshots → JSONL (180d)
 // Run with n8n STOPPED. Deploy: node tools/deploy_books.js
-const fs = require('fs'), path = require('path'), crypto = require('crypto');
+const path = require('path'), crypto = require('crypto');
 const { deployWorkflow } = require('./lib/n8n-sqlite-deployer');
 const arg = k => (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1];
 const DB = arg('db') || path.join(__dirname, '..', 'docker-data',

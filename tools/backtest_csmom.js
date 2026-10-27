@@ -89,7 +89,7 @@ function eligSet(ts){
 
 function run(L,F){
   const pos=new Map();          // sym → {side:+1|-1, entry}
-  let equity=1,peak=1,maxDD=0,nReb=0,fees=0,drag=0,turns=0;
+  let equity=1,peak=1,maxDD=0,fees=0,drag=0,turns=0;
   const curve=[];
   let cur=null,curM=-1;
   // leg drag: model price close[t], real fill differs.
@@ -158,7 +158,6 @@ function run(L,F){
         pos.set(sym,{side});turns++;
       }
     }
-    nReb++;
   }
   // rebalance yield: simple proxy — equity growth between steps
   const rets=[];for(let i=1;i<curve.length;i++)rets.push((curve[i].eq-curve[i-1].eq)/curve[i-1].eq);
@@ -167,7 +166,6 @@ function run(L,F){
   const ret=(equity-1)*100;
   // yearly returns
   const years={};
-  let prev=curve[0]?.eq||1;
   for(const p of curve){
     const y=new Date(p.ts).getUTCFullYear();
     (years[y]=years[y]||[]).push(p.eq);
@@ -182,13 +180,13 @@ function run(L,F){
 
 console.log(`=== CS-MOMENTUM | K=${K} ${LONGONLY?'long-only':'L/S'} | fee=${FEE*1e4}bps slipk=${SLIPK}${NEXTOPEN?' nextopen':''}${TOPK?` topk=${TOPK}`:''} | ${Object.keys(series).length} sym ===`);
 console.log('L(h)  F(h)  Ret%    Sharpe  MaxDD%   fees%   drag%   turns');
-for(const L of LBS)for(const F of FREQS){
+for(const L of LBS){for(const F of FREQS){
   const r=run(L,F);
   console.log(`${String(L).padEnd(5)} ${String(F).padEnd(5)} `+
     `${r.ret.toFixed(1).padStart(7)} ${r.sharpe.toFixed(2).padStart(7)} `+
     `${r.maxDD.toFixed(1).padStart(7)} ${r.fees.toFixed(1).padStart(7)} ${r.drag.toFixed(1).padStart(7)} ${r.turns}`);
   console.log('   by year: '+Object.entries(r.yr).map(([y,v])=>`${y}:${v.toFixed(0)}%`).join(' '));
-}
+}}
 // benchmarks
 const b0=btc.bars[0],b1=btc.bars[btc.bars.length-1];
 console.log(`\nBTC buy&hold: ${((b1.c-b0.c)/b0.c*100).toFixed(1)}% over window`);

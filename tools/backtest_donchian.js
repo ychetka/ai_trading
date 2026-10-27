@@ -33,8 +33,6 @@ const load=sym=>{
   if(!fs.existsSync(f))return null;
   return JSON.parse(fs.readFileSync(f)).bars;
 };
-const mean=a=>a.length?a.reduce((s,x)=>s+x,0)/a.length:NaN;
-
 function symTest(bars,sym,rows){
   const n=bars.length;
   // precompute: ATR14, SMA20 vol, SMA close N, bandwidth, rolling 20% quantile
@@ -88,7 +86,7 @@ function symTest(bars,sym,rows){
     }
     // entry
     if(!Number.isFinite(atr[i])||!Number.isFinite(up[i])||!Number.isFinite(vSma[i]))
-      continue;
+      {continue;}
     const bw=(up[i]-dn[i])/cSma[i];
     const sq=SQUEEZE?bw<=q20(win):true;
     const volOK=b.v>1.5*vSma[i];

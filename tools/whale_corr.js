@@ -30,7 +30,7 @@ const api = async p => {
       const j = await r.json();
       if (j.retCode === 0) return j.result;
       await sleep(1000 * (t + 1));
-    } catch (e) { await sleep(1000 * (t + 1)); }
+    } catch { await sleep(1000 * (t + 1)); }
   }
   return null;
 };
@@ -149,12 +149,12 @@ async function fundingAt(sym, ts) {
     ((r.dir === 'S' && r.funding <= 0) || (r.dir === 'L' && r.funding >= 0)));
   const nof = ok.filter(r => r.funding === null);
   for (const [tag, arr] of [['CARRY (paid)', arb], ['DIRECTIONAL (paying)', dir], ['no funding data', nof]])
-    for (const h of [8, 24]) {
+    {for (const h of [8, 24]) {
       stat(`${tag} raw +${h}h`, arr, 'r' + h);
       stat(`${tag} adj +${h}h`, arr, 'a' + h);
       stat(`${tag} sgn-raw +${h}h`, arr, 's' + h);
       stat(`${tag} sgn-adj +${h}h`, arr, 'sa' + h);
-    }
+    }}
   const cov = ok.filter(r => r.funding !== null).length;
   console.log(`funding coverage: ${cov}/${ok.length}`);
   const dirS = dir.filter(r => r.dir === 'S'), arbS = arb.filter(r => r.dir === 'S');

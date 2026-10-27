@@ -274,8 +274,8 @@ const saveState = s => {
 
   // a breakout happened but gates/slots filtered it out — visible sign of work
   if (dbg.brk > 0 && dbg.entries === 0)
-    events.push({ type: 'watch', brk: dbg.brk, volP: dbg.volP, cand: dbg.cand,
-                  near: dbg.nearSym, nearR: +dbg.nearR.toFixed(3) });
+    {events.push({ type: 'watch', brk: dbg.brk, volP: dbg.volP, cand: dbg.cand,
+                  near: dbg.nearSym, nearR: +dbg.nearR.toFixed(3) });}
 
   // --- 3) daily digest (the 00:0x UTC run, once a day) ---
   if (new Date(now).getUTCHours() === 0 && st.digestDay !== day) {
@@ -283,7 +283,7 @@ const saveState = s => {
     const t24 = st.trades.filter(t => now - t.exitTs < 86400e3);
     const conc = {};
     for (const t of st.trades.filter(t => now - t.exitTs < 30 * 86400e3))
-      conc[t.sym] = (conc[t.sym] || 0) + 1;
+      {conc[t.sym] = (conc[t.sym] || 0) + 1;}
     const reasons = {};
     let hb = 0, sl = 0, slN = 0;
     for (const t of st.trades) {
