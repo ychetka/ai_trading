@@ -104,11 +104,11 @@ for(const sym of syms){
   await new Promise(r=>setTimeout(r,300));
 }
 // market regime tag (issue #29): stratify all forward stats by regime
-const regime=(async()=>{try{
+const regime=await(async()=>{try{
   const tk=await get('https://api.bybit.com/v5/market/tickers?category=linear&symbol=BTCUSDT');
   const t0=((tk&&tk.result&&tk.result.list)||[])[0]||{};
-  const kl=await get('https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=D&limit=31');
-  const cls=((kl&&kl.result&&kl.result.list)||[]).map(r=>+r[4]).filter(v=>v>0);
+  const kl=await get('https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=D&limit=32');
+  const cls=((kl&&kl.result&&kl.result.list)||[]).map(r=>+r[4]).filter(v=>v>0).slice(1);  // drop unclosed daily bar
   const last=cls[0],prev=cls.slice(1,31);
   const sma=prev.length?prev.reduce((a,b)=>a+b,0)/prev.length:null;
   const rets=[];for(let i=0;i<Math.min(14,cls.length-1);i++)rets.push(Math.log(cls[i]/cls[i+1]));

@@ -109,9 +109,9 @@ for(const t of (tick&&tick.result&&tick.result.list)||[]){
   if(t.symbol==='BTCUSDT')btcTick=t;
 }
 // market regime tag (issue #29): stratify forward stats by regime
-const regime=(async()=>{try{
-  const kl=await get('https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=D&limit=31');
-  const cls=((kl&&kl.result&&kl.result.list)||[]).map(r=>+r[4]).filter(v=>v>0);
+const regime=await(async()=>{try{
+  const kl=await get('https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=D&limit=32');
+  const cls=((kl&&kl.result&&kl.result.list)||[]).map(r=>+r[4]).filter(v=>v>0).slice(1);  // drop unclosed daily bar
   const last=cls[0],prev=cls.slice(1,31);
   const sma=prev.length?prev.reduce((a,b)=>a+b,0)/prev.length:null;
   const rets=[];for(let i=0;i<Math.min(14,cls.length-1);i++)rets.push(Math.log(cls[i]/cls[i+1]));
