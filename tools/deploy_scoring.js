@@ -163,7 +163,33 @@ if(want)rows=rows.filter(r=>(r.asset||'').toUpperCase()===want);
 return[{json:{n:rows.length,rows:rows.slice(-500)}}];
 `;
 
+// ---------- node 5: daily universe sweep (issue #35) ----------
+// calls the existing /webhook/score per asset - the engine itself appends
+// each result to score_history.jsonl, so a sweep builds the daily panel.
+const codeSweep = String.raw`
+const helpers=this.helpers;
+const fs=require('fs');
+const uni=(()=>{try{return JSON.parse(fs.readFileSync('/home/node/.n8n/donchian_state.json','utf8')).universe||[];}catch(e){return[];}})();
+const out=[];
+for(const s of uni){
+  const asset=s.replace(/USDT$/,'');
+  try{
+    const r=await helpers.httpRequest({method:'GET',
+      url:'http://localhost:5678/webhook/score?asset='+encodeURIComponent(asset),json:true,timeout:30000});
+    out.push({asset,score:r&&r.score,verdict:r&&r.verdict});
+  }catch(e){out.push({asset,error:String(e&&e.message||e)});}
+  await new Promise(r=>setTimeout(r,1500));   // be nice to the free APIs
+}
+return[{json:{ok:out.length,results:out}}];
+`;
+
 const nodes = [
+  { parameters: { rule: { interval: [{ field: 'days', daysInterval: 1, triggerAtHour: 3, triggerAtMinute: 15 }] } },
+    id: 's-sch', name: 'Daily Schedule',
+    type: 'n8n-nodes-base.scheduleTrigger', typeVersion: 1.2, position: [-400, 400] },
+  { parameters: { jsCode: codeSweep },
+    id: 's-sweep', name: 'Universe Score Sweep',
+    type: 'n8n-nodes-base.code', typeVersion: 2, position: [-160, 400] },
   { parameters: { httpMethod: 'GET', path: 'score', responseMode: 'lastNode', options: {}, webhookId: H1 },
     id: 's-hook', name: 'Score Webhook',
     type: 'n8n-nodes-base.webhook', typeVersion: 2, position: [-400, 0], webhookId: H1 },
@@ -179,13 +205,15 @@ const nodes = [
 ];
 const connections = {
   'Score Webhook': { main: [[{ node: 'Scoring Engine', type: 'main', index: 0 }]] },
-  'Score History Webhook': { main: [[{ node: 'Score History', type: 'main', index: 0 }]] }
+  'Score History Webhook': { main: [[{ node: 'Score History', type: 'main', index: 0 }]] },
+  'Daily Schedule': { main: [[{ node: 'Universe Score Sweep', type: 'main', index: 0 }]] }
 };
 
 deployWorkflow({
   dbPath: DB, name: 'Scoring Aggregator (svc)',
   nodes, connections, author: 'deploy_scoring.js',
   hooks: [['score', 'GET', 'Score Webhook'], ['score-history', 'GET', 'Score History Webhook']],
-  triggers: [['s-hook', 'persisted'], ['s-code', 'persisted'], ['s-hist-hook', 'persisted'], ['s-hist', 'persisted']],
+  triggers: [['s-hook', 'persisted'], ['s-code', 'persisted'], ['s-hist-hook', 'persisted'],
+    ['s-hist', 'persisted'], ['s-sch', 'in-memory'], ['s-sweep', 'persisted']],
   snapshotPath: path.join(__dirname, '..', 'workflow-scoring.json'),
 });
