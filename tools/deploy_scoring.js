@@ -171,14 +171,16 @@ const helpers=this.helpers;
 const fs=require('fs');
 const uni=(()=>{try{return JSON.parse(fs.readFileSync('/home/node/.n8n/donchian_state.json','utf8')).universe||[];}catch(e){return[];}})();
 const out=[];
-for(const s of uni){
-  const asset=s.replace(/USDT$/,'');
+for(let i=0;i<uni.length;i++){
+  const s=uni[i];
   try{
+    if(typeof s!=='string'||!s)throw new Error('bad universe entry');
+    const asset=s.replace(/USDT$/,'');
     const r=await helpers.httpRequest({method:'GET',
       url:'http://localhost:5678/webhook/score?asset='+encodeURIComponent(asset),json:true,timeout:30000});
     out.push({asset,score:r&&r.score,verdict:r&&r.verdict});
-  }catch(e){out.push({asset,error:String(e&&e.message||e)});}
-  await new Promise(r=>setTimeout(r,1500));   // be nice to the free APIs
+  }catch(e){out.push({asset:String(s),error:String(e&&e.message||e)});}
+  if(i<uni.length-1)await new Promise(r=>setTimeout(r,1500));   // be nice to the free APIs
 }
 return[{json:{ok:out.length,results:out}}];
 `;
