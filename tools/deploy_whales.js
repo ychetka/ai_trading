@@ -122,7 +122,7 @@ const regime=await(async()=>{try{
     btcFunding:fund.BTC===undefined?null:fund.BTC,
     btcChg30d:chg30===null?null:+chg30.toFixed(2),
     btcVol:vol===null?null:+vol.toFixed(2),
-    regime:chg30===null?'unknown':chg30<=-10?'bear':chg30>=10?'bull':'neutral'};
+    regime:chg30===null?'unknown':chg30<=-7?'bear':chg30>=7?'bull':'neutral'};
 }catch(e){return null;}})();
 
 const alerts=[];
