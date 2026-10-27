@@ -25,8 +25,17 @@ const nodeGlobals = {
   TextEncoder: 'readonly',
   TextDecoder: 'readonly',
   AbortController: 'readonly',
+  AbortSignal: 'readonly',
   structuredClone: 'readonly',
   globalThis: 'readonly',
+  performance: 'readonly',
+  Headers: 'readonly',
+  Request: 'readonly',
+  Response: 'readonly',
+  FormData: 'readonly',
+  atob: 'readonly',
+  btoa: 'readonly',
+  crypto: 'readonly',
 };
 
 export default [
