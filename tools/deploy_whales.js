@@ -100,13 +100,30 @@ for(const addr of st.addrs)
   }
 // Bybit tickers -> funding rate per symbol (single bulk call)
 const tick=await get('https://api.bybit.com/v5/market/tickers?category=linear');
-const fund={};
+const fund={};let btcTick=null;
 for(const t of (tick&&tick.result&&tick.result.list)||[]){
   const s=t.symbol.replace(/USDT$/,'');
   fund[s]=+t.fundingRate;
   const m=s.match(/^1000(.+)$/);
   if(m)fund['k'+m[1]]=+t.fundingRate;   // HL k-prefix alias: kPEPE -> 1000PEPE
+  if(t.symbol==='BTCUSDT')btcTick=t;
 }
+// market regime tag (issue #29): stratify forward stats by regime
+const regime=(async()=>{try{
+  const kl=await get('https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=D&limit=31');
+  const cls=((kl&&kl.result&&kl.result.list)||[]).map(r=>+r[4]).filter(v=>v>0);
+  const last=cls[0],prev=cls.slice(1,31);
+  const sma=prev.length?prev.reduce((a,b)=>a+b,0)/prev.length:null;
+  const rets=[];for(let i=0;i<Math.min(14,cls.length-1);i++)rets.push(Math.log(cls[i]/cls[i+1]));
+  const rm=rets.length?rets.reduce((a,b)=>a+b,0)/rets.length:0;
+  const vol=rets.length>1?Math.sqrt(rets.reduce((a,b)=>a+(b-rm)**2,0)/(rets.length-1))*100:null;
+  const chg30=last&&sma?(last/sma-1)*100:null;
+  return{btcChg24h:btcTick&&btcTick.price24hPcnt!==undefined?+(+btcTick.price24hPcnt*100).toFixed(2):null,
+    btcFunding:fund.BTC===undefined?null:fund.BTC,
+    btcChg30d:chg30===null?null:+chg30.toFixed(2),
+    btcVol:vol===null?null:+vol.toFixed(2),
+    regime:chg30===null?'unknown':chg30<=-10?'bear':chg30>=10?'bull':'neutral'};
+}catch(e){return null;}})();
 
 const alerts=[];
 for(const[k,c]of Object.entries(byCoin)){
@@ -127,8 +144,10 @@ for(const k of Object.keys(st.clusters))
   if(!byCoin[k]||byCoin[k].n<CLUSTER_K)delete st.clusters[k];   // cluster dissolved
 
 // ---------- 4. persist + report ----------
-for(const e of events.concat(alerts))
+for(const e of events.concat(alerts)){
+  e.regime=regime;
   try{fs.appendFileSync(HIST,JSON.stringify(e)+'\n');}catch(e2){}
+}
 try{fs.writeFileSync(STATE,JSON.stringify(st));}catch(e){}
 // rotation: once a day drop events older than 180 days
 const day=new Date().toISOString().slice(0,10);

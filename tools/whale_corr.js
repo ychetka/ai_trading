@@ -98,7 +98,8 @@ async function fundingAt(sym, ts) {
     const p0 = at(bars, r.ts);
     if (!p0) { out.push({ ...r, skip: 'no base' }); continue; }
     const b0 = at(btc, r.ts);
-    const rec = { coin: r.coin, dir: r.dir, n: r.n, usd: r.usd, ts: r.ts };
+    const rec = { coin: r.coin, dir: r.dir, n: r.n, usd: r.usd, ts: r.ts,
+      regime: (r.regime && r.regime.regime) || 'n/a' };
     rec.funding = await fundingAt(sym, r.ts);
     await sleep(60);
     for (const h of [1, 4, 8, 24]) {
@@ -160,6 +161,20 @@ async function fundingAt(sym, ts) {
   for (const h of [8, 24]) {
     stat(`DIR_S only raw +${h}h`, dirS, 'r' + h);
     stat(`ARB_S only raw +${h}h`, arbS, 'r' + h);
+  }
+  // regime split (issue #29): pooled numbers are regime-biased, bucket instead
+  console.log('--- regime split (n/a = events before regime tagging) ---');
+  const isCarry = r => r.funding !== null &&
+    ((r.dir === 'S' && r.funding > 0) || (r.dir === 'L' && r.funding < 0));
+  for (const rg of ['bear', 'neutral', 'bull', 'unknown', 'n/a']) {
+    const sub = ok.filter(r => r.regime === rg);
+    if (!sub.length) continue;
+    for (const h of [8, 24]) {
+      stat(`${rg} sgn-raw +${h}h`, sub, 's' + h);
+      stat(`${rg} sgn-adj +${h}h`, sub, 'sa' + h);
+    }
+    stat(`${rg} CARRY sgn-adj +24h`, sub.filter(isCarry), 'sa24');
+    stat(`${rg} DIR sgn-adj +24h`, sub.filter(r => r.funding !== null && !isCarry(r)), 'sa24');
   }
   fs.writeFileSync(path.join(ROOT, 'data', 'whale_corr_out.json'), JSON.stringify(out, null, 1));
   console.log('detail -> data/whale_corr_out.json');

@@ -143,6 +143,25 @@ need.add('BTCUSDT');
 const data={};
 for(const s of need){try{data[s]=await klines(s);}catch(e){dbg.kErr++;}}
 
+// market regime tag (issue #29): stratify forward stats by regime
+let regime=null;
+try{
+  const t=(await api('/v5/market/tickers?category=linear&symbol=BTCUSDT')).list||[];
+  const kl=(await api('/v5/market/kline?category=linear&symbol=BTCUSDT&interval=D&limit=31')).list||[];
+  const cls=kl.map(r=>+r[4]).filter(v=>v>0);
+  const last=cls[0],prev=cls.slice(1,31);
+  const sma=prev.length?prev.reduce((a,b)=>a+b,0)/prev.length:null;
+  const rets=[];for(let i=0;i<Math.min(14,cls.length-1);i++)rets.push(Math.log(cls[i]/cls[i+1]));
+  const rm=rets.length?rets.reduce((a,b)=>a+b,0)/rets.length:0;
+  const vol=rets.length>1?Math.sqrt(rets.reduce((a,b)=>a+(b-rm)**2,0)/(rets.length-1))*100:null;
+  const chg30=last&&sma?(last/sma-1)*100:null;
+  regime={btcChg24h:t[0]&&t[0].price24hPcnt!==undefined?+(+t[0].price24hPcnt*100).toFixed(2):null,
+    btcFunding:t[0]&&t[0].fundingRate!==undefined?+t[0].fundingRate:null,
+    btcChg30d:chg30===null?null:+chg30.toFixed(2),
+    btcVol:vol===null?null:+vol.toFixed(2),
+    regime:chg30===null?'unknown':chg30<=-10?'bear':chg30>=10?'bull':'neutral'};
+}catch(e){}
+
 // 1) virtual position exits on the last closed bar
 for(let k=st.positions.length-1;k>=0;k--){
   dbg.posChk++;
@@ -162,7 +181,7 @@ for(let k=st.positions.length-1;k>=0;k--){
   const R=(exit-pos.entry)/pos.risk;
   const reason=hit?'TRAIL_HIT':'EXPIRY';
   st.stats.n++;st.stats.sumR+=R;if(R>0)st.stats.wins++;
-  st.trades.push({sym:pos.sym,entry:pos.entry,exit,R:+R.toFixed(3),entryTs:pos.entryTs,exitTs:now,bars:pos.barsHeld|0,reason,slipIn:pos.slipIn,slipOut:+slip.toFixed(5),book:pos.book||null});
+  st.trades.push({sym:pos.sym,entry:pos.entry,exit,R:+R.toFixed(3),entryTs:pos.entryTs,exitTs:now,bars:pos.barsHeld|0,reason,slipIn:pos.slipIn,slipOut:+slip.toFixed(5),book:pos.book||null,regime:pos.regime||null,exitRegime:regime});
   if(st.trades.length>500)st.trades.shift();
   events.push({type:'exit',sym:pos.sym,R:+R.toFixed(2),exit:+exit.toPrecision(6),hit,reason,heldH:pos.barsHeld|0});
   dbg.exits++;
@@ -210,7 +229,7 @@ for(const c of cand){
   const risk=entry-stop0;
   if(!(risk>0))continue;
   const book=(await svcBook(c.s))||await snapBook(c.s);
-  st.positions.push({sym:c.s,entry,stop0,risk,slipIn:+slip.toFixed(5),entryTs:now,entryBarTs:c.sigTs,barsHeld:0,book});
+  st.positions.push({sym:c.s,entry,stop0,risk,slipIn:+slip.toFixed(5),entryTs:now,entryBarTs:c.sigTs,barsHeld:0,book,regime});
   (st.lastSig=st.lastSig||{})[c.s]=c.sigTs;
   events.push({type:'entry',sym:c.s,entry:+entry.toPrecision(6),
     stop:+stop0.toPrecision(6),riskPct:+(risk/entry*100).toFixed(2),
