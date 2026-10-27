@@ -165,17 +165,20 @@ for(const r of rows){
     .map(c=>({side:c.side,px:+c.px.toPrecision(7),usd:c.usdMax,persistMin:Math.round((r.ts-c.start)/60000)+15}))
     .filter(c=>c.persistMin>=120);
 }
-// staleness: chains for symbols no longer scanned never refresh - close them
-const scanned=new Set(rows.map(r=>r.sym));
-const nowT=rows.length?rows[rows.length-1].ts:Date.now();
-for(let j=ws.chains.length-1;j>=0;j--){
-  const c=ws.chains[j];
-  if(scanned.has(c.sym))continue;
-  if(nowT-c.lastSeen>120*60000){
-    wEvents.push({type:'wall',sym:c.sym,side:c.side,px:+c.px.toPrecision(7),usd:c.usdMax,
-      persistMin:Math.round((c.lastSeen-c.start)/60000)+15,touched:!!c.touched,outcome:'pull',
-      regime:regime&&regime.regime,ts:nowT});
-    ws.chains.splice(j,1);
+// staleness: chains for symbols no longer scanned never refresh - close them.
+// gated on rows.length: an empty run (collector outage) must not wipe the state.
+if(rows.length){
+  const scanned=new Set(rows.map(r=>r.sym));
+  const nowT=rows[rows.length-1].ts;
+  for(let j=ws.chains.length-1;j>=0;j--){
+    const c=ws.chains[j];
+    if(scanned.has(c.sym))continue;
+    if(nowT-c.lastSeen>120*60000){
+      wEvents.push({type:'wall',sym:c.sym,side:c.side,px:+c.px.toPrecision(7),usd:c.usdMax,
+        persistMin:Math.round((c.lastSeen-c.start)/60000)+15,touched:!!c.touched,
+        outcome:c.touched?'hold':'pull',regime:regime&&regime.regime,ts:nowT});
+      ws.chains.splice(j,1);
+    }
   }
 }
 if(rows.length)fs.appendFileSync(HIST,rows.map(r=>JSON.stringify(r)).join('\n')+'\n');
