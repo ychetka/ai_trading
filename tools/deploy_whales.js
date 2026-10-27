@@ -10,8 +10,8 @@
 //   Schedule 15min / GET /webhook/whales          -> scan + cluster check
 //   GET /webhook/whale-history?hours=N            -> JSONL event log
 // Run with n8n STOPPED. Deploy: node tools/deploy_whales.js [--update]
-const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
+const { deployWorkflow } = require('./lib/n8n-sqlite-deployer');
 const arg = k => (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1];
 const DB = arg('db') || path.join(__dirname, '..', 'docker-data',
   'volumes/crypto-analyst_n8n_storage/_data/.n8n/database.sqlite');
@@ -21,8 +21,6 @@ const ENV_TXT = envFile(path.join(__dirname, '..', 'ENV')) || envFile(path.join(
 const TG_CHAT_ID = process.env.TG_CHAT_ID ||
   (ENV_TXT.match(/^\s*TG_CHAT_ID\s*=\s*"?([^"\n]+)"?/m) || [])[1] || 'YOUR_CHAT_ID';
 
-const WF_ID = crypto.randomUUID().slice(0, 16);
-const VER_ID = crypto.randomUUID();
 const H1 = crypto.randomUUID(), H2 = crypto.randomUUID();
 
 const codeScan = String.raw`
@@ -132,6 +130,17 @@ for(const k of Object.keys(st.clusters))
 for(const e of events.concat(alerts))
   try{fs.appendFileSync(HIST,JSON.stringify(e)+'\n');}catch(e2){}
 try{fs.writeFileSync(STATE,JSON.stringify(st));}catch(e){}
+// rotation: once a day drop events older than 30 days
+const day=new Date().toISOString().slice(0,10);
+if(st.pruneDay!==day){
+  try{
+    const cut=Date.now()-30*86400e3;
+    const lines2=fs.readFileSync(HIST,'utf8').split('\n').filter(l=>{
+      if(!l)return false;try{return JSON.parse(l).ts>cut;}catch(e){return false;}});
+    fs.writeFileSync(HIST,lines2.join('\n')+(lines2.length?'\n':''));
+  }catch(e){}
+  st.pruneDay=day;try{fs.writeFileSync(STATE,JSON.stringify(st));}catch(e){}
+}
 
 alerts.sort((a,b)=>b.usd-a.usd);
 const lines=[];
@@ -205,58 +214,11 @@ const connections = {
   'Whale History Webhook': { main: [[{ node: 'Whale History', type: 'main', index: 0 }]] }
 };
 
-const now = new Date().toISOString().replace('T', ' ').slice(0, 23);
-const db = new DatabaseSync(DB);
-db.exec('BEGIN');
-const existing = db.prepare(`SELECT id FROM workflow_entity WHERE name='Whales Monitor (svc)'`).get();
-let wf;
-if (existing) {
-  wf = existing.id;
-  db.prepare(`INSERT INTO workflow_history
-    (versionId,workflowId,authors,createdAt,updatedAt,nodes,connections,name,autosaved)
-    VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(VER_ID, wf, 'deploy_whales.js --update', now, now,
-      JSON.stringify(nodes), JSON.stringify(connections), 'Whales Monitor (svc)', 0);
-  db.prepare(`UPDATE workflow_entity SET nodes=?,connections=?,versionId=?,activeVersionId=?,updatedAt=? WHERE id=?`)
-    .run(JSON.stringify(nodes), JSON.stringify(connections), VER_ID, VER_ID, now, wf);
-  db.prepare(`UPDATE workflow_published_version SET publishedVersionId=?,updatedAt=? WHERE workflowId=?`)
-    .run(VER_ID, now, wf);
-  console.log('updated workflow', wf, 'version', VER_ID);
-} else {
-  wf = WF_ID;
-  db.prepare(`INSERT INTO workflow_entity
-    (id,name,active,nodes,connections,settings,versionId,triggerCount,createdAt,updatedAt,isArchived,versionCounter,activeVersionId)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL)`)
-    .run(WF_ID, 'Whales Monitor (svc)', 1,
-      JSON.stringify(nodes), JSON.stringify(connections),
-      JSON.stringify({ executionOrder: 'v1' }), VER_ID, 0, now, now, 0, 1);
-  db.prepare(`INSERT INTO workflow_history
-    (versionId,workflowId,authors,createdAt,updatedAt,nodes,connections,name,autosaved)
-    VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(VER_ID, wf, 'deploy_whales.js', now, now,
-      JSON.stringify(nodes), JSON.stringify(connections), 'Whales Monitor (svc)', 0);
-  db.prepare(`UPDATE workflow_entity SET activeVersionId=? WHERE id=?`)
-    .run(VER_ID, wf);
-  db.prepare(`INSERT INTO workflow_published_version
-    (workflowId,publishedVersionId,createdAt,updatedAt) VALUES (?,?,?,?)`)
-    .run(wf, VER_ID, now, now);
-  console.log('inserted workflow', wf, 'version', VER_ID);
-}
-db.prepare(`DELETE FROM webhook_entity WHERE workflowId=?`).run(wf);
-for (const [p, m, n] of [['whales', 'GET', 'Whales Webhook'], ['whale-history', 'GET', 'Whale History Webhook']])
-  db.prepare(`INSERT INTO webhook_entity (workflowId,webhookPath,method,node,webhookId,pathLength) VALUES (?,?,?,?,?,?)`)
-    .run(wf, p, m, n, null, null);
-const proj = db.prepare(`SELECT projectId FROM shared_workflow WHERE workflowId='66fb7895-f0b3-47'`).get();
-if (proj) db.prepare(`INSERT OR IGNORE INTO shared_workflow (workflowId,projectId,role) VALUES (?,?,?)`)
-  .run(wf, proj.projectId, 'workflow:owner');
-db.prepare(`DELETE FROM workflow_publication_trigger_status WHERE workflowId=?`).run(wf);
-for (const [nid, kind] of [['w-sch', 'in-memory'], ['w-hook', 'persisted'], ['w-code', 'persisted'],
-  ['w-if', 'persisted'], ['w-tg', 'persisted'], ['w-hist-hook', 'persisted'], ['w-hist', 'persisted']])
-  db.prepare(`INSERT INTO workflow_publication_trigger_status (workflowId,nodeId,versionId,status,errorMessage,createdAt,updatedAt,triggerKind) VALUES (?,?,?,?,?,?,?,?)`)
-    .run(wf, nid, VER_ID, 'activated', null, now, now, kind);
-db.exec('COMMIT');
-db.close();
-
-fs.writeFileSync(path.join(__dirname, '..', 'workflow-whales.json'),
-  JSON.stringify({ name: 'Whales Monitor (svc)', nodes, connections }, null, 2));
-console.log('snapshot -> workflow-whales.json');
+deployWorkflow({
+  dbPath: DB, name: 'Whales Monitor (svc)',
+  nodes, connections, author: 'deploy_whales.js',
+  hooks: [['whales', 'GET', 'Whales Webhook'], ['whale-history', 'GET', 'Whale History Webhook']],
+  triggers: [['w-sch', 'in-memory'], ['w-hook', 'persisted'], ['w-code', 'persisted'],
+    ['w-if', 'persisted'], ['w-tg', 'persisted'], ['w-hist-hook', 'persisted'], ['w-hist', 'persisted']],
+  snapshotPath: path.join(__dirname, '..', 'workflow-whales.json'),
+});
