@@ -43,7 +43,7 @@ for (const sym of syms) {
   const recs = rows.filter(r => r.sym === sym && r.agg && r.agg.mid)
     .sort((a, b) => a.ts - b.ts);
   if (recs.length < 10) continue;
-  const st = stats[sym] = { snaps: recs.length, chains: 0, persist: [], outcome: {}, maxHoldH: 0 };
+  const st = stats[sym] = { snaps: recs.length, chains: 0, persist: [], outcome: {}, regOut: {}, maxHoldH: 0 };
 
   // active chains per side: {side:'A'|'B', pctAvg, usd, start, lastSeen, touched}
   const active = [];
@@ -51,9 +51,12 @@ for (const sym of syms) {
     const snaps = Math.round((c.lastSeen - c.start) / (SNAP_MIN * 60000)) + 1;
     st.chains++; st.persist.push(snaps);
     classify(st.outcome, outcome);
+    // regime at chain close (issue #29): outcomes are regime-skewed
+    const rg = recs[endIdx] && recs[endIdx].regime && recs[endIdx].regime.regime || 'n/a';
+    (st.regOut[rg] = st.regOut[rg] || {})[outcome] = ((st.regOut[rg] || {})[outcome] || 0) + 1;
     st.maxHoldH = Math.max(st.maxHoldH, snaps * SNAP_MIN / 60);
     chains.push({ sym, side: c.side, px: +c.px.toPrecision(6), usd: c.usdMax,
-      snaps, hours: +(snaps * SNAP_MIN / 60).toFixed(1), outcome,
+      snaps, hours: +(snaps * SNAP_MIN / 60).toFixed(1), outcome, regime: rg,
       start: new Date(c.start).toISOString().slice(5, 16), end: new Date(c.lastSeen).toISOString().slice(5, 16) });
   };
 
@@ -107,7 +110,8 @@ for (const sym of Object.keys(stats)) {
   const st = stats[sym];
   console.log(`\n=== ${sym} snaps=${st.snaps} chains=${st.chains} ` +
     `median persist=${med(st.persist)} snaps, max=${st.maxHoldH.toFixed(1)}h`);
-  console.log('outcomes:', JSON.stringify(st.outcome));
+  console.log('outcomes:', JSON.stringify(st.outcome),
+    '| by regime:', JSON.stringify(st.regOut));
 }
 console.log('\n--- top persistent walls (>=2h) ---');
 chains.filter(c => c.snaps * SNAP_MIN >= 120)

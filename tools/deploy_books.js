@@ -103,6 +103,25 @@ for(const sym of syms){
   }catch(e){}
   await new Promise(r=>setTimeout(r,300));
 }
+// market regime tag (issue #29): stratify all forward stats by regime
+const regime=await(async()=>{try{
+  const tk=await get('https://api.bybit.com/v5/market/tickers?category=linear&symbol=BTCUSDT');
+  const t0=((tk&&tk.result&&tk.result.list)||[])[0]||{};
+  const kl=await get('https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=D&limit=32');
+  const cls=((kl&&kl.result&&kl.result.list)||[]).map(r=>+r[4]).filter(v=>v>0).slice(1);  // drop unclosed daily bar
+  const last=cls[0],prev=cls.slice(1,31);
+  const sma=prev.length?prev.reduce((a,b)=>a+b,0)/prev.length:null;
+  const rets=[];for(let i=0;i<Math.min(14,cls.length-1);i++)rets.push(Math.log(cls[i]/cls[i+1]));
+  const rm=rets.length?rets.reduce((a,b)=>a+b,0)/rets.length:0;
+  const vol=rets.length>1?Math.sqrt(rets.reduce((a,b)=>a+(b-rm)**2,0)/(rets.length-1))*100:null;
+  const chg30=last&&sma?(last/sma-1)*100:null;
+  return{btcChg24h:t0.price24hPcnt===undefined?null:+(+t0.price24hPcnt*100).toFixed(2),
+    btcFunding:t0.fundingRate===undefined?null:+t0.fundingRate,
+    btcChg30d:chg30===null?null:+chg30.toFixed(2),
+    btcVol:vol===null?null:+vol.toFixed(2),
+    regime:chg30===null?'unknown':chg30<=-10?'bear':chg30>=10?'bull':'neutral'};
+}catch(e){return null;}})();
+if(regime)rows.forEach(r=>r.regime=regime);
 // wall persistence tracker: snapshot walls -> absolute-price chains (issue #25)
 // (runs BEFORE the history append so persistWalls lands in the JSONL record)
 const WST='/home/node/.n8n/walls_state.json', WEV='/home/node/.n8n/wall_events.jsonl';
@@ -137,7 +156,8 @@ for(const r of rows){
     else if(c.lastSeen<r.ts)out=c.touched?'hold':'pull';
     if(out){
       wEvents.push({type:'wall',sym:c.sym,side:c.side,px:+c.px.toPrecision(7),usd:c.usdMax,
-        persistMin:Math.round((c.lastSeen-c.start)/60000)+15,touched:c.touched,outcome:out,ts:r.ts});
+        persistMin:Math.round((c.lastSeen-c.start)/60000)+15,touched:c.touched,outcome:out,
+        regime:regime&&regime.regime,ts:r.ts});
       ws.chains.splice(j,1);
     }
   }
@@ -153,7 +173,8 @@ for(let j=ws.chains.length-1;j>=0;j--){
   if(scanned.has(c.sym))continue;
   if(nowT-c.lastSeen>120*60000){
     wEvents.push({type:'wall',sym:c.sym,side:c.side,px:+c.px.toPrecision(7),usd:c.usdMax,
-      persistMin:Math.round((c.lastSeen-c.start)/60000)+15,touched:!!c.touched,outcome:'pull',ts:nowT});
+      persistMin:Math.round((c.lastSeen-c.start)/60000)+15,touched:!!c.touched,outcome:'pull',
+      regime:regime&&regime.regime,ts:nowT});
     ws.chains.splice(j,1);
   }
 }
