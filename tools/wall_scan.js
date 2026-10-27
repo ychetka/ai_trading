@@ -8,24 +8,30 @@
 // [%distance, usd, venue]), tracks wall persistence across snapshots and
 // classifies each wall's outcome:
 //   pull  - wall disappeared before price touched its band
-//   hold  - price reached the band and bounced (wall still there >=8h after)
+//   hold  - wall vanished after price touched its band (resting liquidity)
 //   break - price crossed through the wall level
+//   alive - chain still open at the end of the dataset
 // Usage: node tools/wall_scan.js [--history=/path/books_history.jsonl]
-//        [--symbol=BTCUSDT] [--min-usd=500000] [--band=0.75]
+//        [--symbol=BTCUSDT] [--min-usd=500000] [--min-dist=0.3] [--band=0.75]
 
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
 const arg = (k, d) => { const v = (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1]; return v === undefined || v === '' ? d : v; };
 const HIST = arg('history', path.join(ROOT, 'docker-data',
   'volumes/crypto-analyst_n8n_storage/_data/books_history.jsonl'));
-const WANT = arg('symbol', null);
+const WANT = (arg('symbol', null) || '').toUpperCase() || null;
 const MIN_USD = +arg('min-usd', 500000);
 const MIN_DIST = +arg('min-dist', 0.3);   // ignore walls closer than this % to mid (top-of-book noise)
 const BAND = +arg('band', 0.75);          // %-points tolerance on wall distance
 const TOUCH = 0.35;                        // price within this % of wall = touched
 const SNAP_MIN = 15;
 
-const rows = fs.readFileSync(HIST, 'utf8').trim().split('\n').map(JSON.parse);
+// tolerant parse: a torn last line (non-atomic append) must not kill the run
+const rows = [];
+for (const l of fs.readFileSync(HIST, 'utf8').split('\n')) {
+  if (!l) continue;
+  try { rows.push(JSON.parse(l)); } catch {}
+}
 const syms = [...new Set(rows.map(r => r.sym))].filter(s => !WANT || s === WANT);
 
 const pct = (a, b) => (a / b - 1) * 100;

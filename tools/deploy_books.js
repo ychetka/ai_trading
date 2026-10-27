@@ -103,8 +103,8 @@ for(const sym of syms){
   }catch(e){}
   await new Promise(r=>setTimeout(r,300));
 }
-if(rows.length)fs.appendFileSync(HIST,rows.map(r=>JSON.stringify(r)).join('\n')+'\n');
 // wall persistence tracker: snapshot walls -> absolute-price chains (issue #25)
+// (runs BEFORE the history append so persistWalls lands in the JSONL record)
 const WST='/home/node/.n8n/walls_state.json', WEV='/home/node/.n8n/wall_events.jsonl';
 const ws=(()=>{try{return JSON.parse(fs.readFileSync(WST,'utf8'));}catch(e){return{chains:[]};}})();
 ws.chains=ws.chains||[];
@@ -145,8 +145,21 @@ for(const r of rows){
     .map(c=>({side:c.side,px:+c.px.toPrecision(7),usd:c.usdMax,persistMin:Math.round((r.ts-c.start)/60000)+15}))
     .filter(c=>c.persistMin>=120);
 }
+// staleness: chains for symbols no longer scanned never refresh - close them
+const scanned=new Set(rows.map(r=>r.sym));
+const nowT=rows.length?rows[rows.length-1].ts:Date.now();
+for(let j=ws.chains.length-1;j>=0;j--){
+  const c=ws.chains[j];
+  if(scanned.has(c.sym))continue;
+  if(nowT-c.lastSeen>120*60000){
+    wEvents.push({type:'wall',sym:c.sym,side:c.side,px:+c.px.toPrecision(7),usd:c.usdMax,
+      persistMin:Math.round((c.lastSeen-c.start)/60000)+15,touched:!!c.touched,outcome:'pull',ts:nowT});
+    ws.chains.splice(j,1);
+  }
+}
+if(rows.length)fs.appendFileSync(HIST,rows.map(r=>JSON.stringify(r)).join('\n')+'\n');
 if(wEvents.length)try{fs.appendFileSync(WEV,wEvents.map(e=>JSON.stringify(e)).join('\n')+'\n');}catch(e){}
-try{fs.writeFileSync(WST,JSON.stringify({chains:ws.chains.slice(-400)}));}catch(e){}
+try{fs.writeFileSync(WST+'.tmp',JSON.stringify({chains:ws.chains.slice(-400)}));fs.renameSync(WST+'.tmp',WST);}catch(e){}
 // rotation: once a day drop everything older than 30 days
 const day=new Date().toISOString().slice(0,10);
 const st=(()=>{try{return JSON.parse(fs.readFileSync(SVC,'utf8'));}catch(e){return{};}})();
@@ -270,15 +283,16 @@ const codeWalls = String.raw`
 const fs=require('fs');
 const q=$input.first().json.query||{};
 const want=(q.symbol||'').toUpperCase();
-const minMin=+(q.minMin||120);
+const minMin=+q.minMin>0?+q.minMin:120;
 let ws={chains:[]};
 try{ws=JSON.parse(fs.readFileSync('/home/node/.n8n/walls_state.json','utf8'));}catch(e){}
 const now=Date.now();
-let active=(ws.chains||[]).map(c=>({...c,persistMin:Math.round((now-c.start)/60000)}));
+let active=(ws.chains||[]).map(c=>({...c,persistMin:Math.round((now-c.start)/60000)+15}));
 if(want)active=active.filter(c=>c.sym===want);
 active=active.filter(c=>c.persistMin>=minMin).sort((a,b)=>b.persistMin-a.persistMin);
 let events=[];
-try{events=fs.readFileSync('/home/node/.n8n/wall_events.jsonl','utf8').trim().split('\n').map(JSON.parse);}catch(e){}
+try{for(const l of fs.readFileSync('/home/node/.n8n/wall_events.jsonl','utf8').split('\n')){
+  if(!l)continue;try{events.push(JSON.parse(l));}catch(e){}}}catch(e){}
 if(want)events=events.filter(e=>e.sym===want);
 return[{json:{active,activeCount:active.length,recentEvents:events.slice(-100)}}];
 `;
