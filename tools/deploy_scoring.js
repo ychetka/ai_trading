@@ -11,7 +11,7 @@
 // Layers (free APIs): CoinGecko (resolve/mcap/repos), GoPlus contract
 // flags, DefiLlama TVL, GitHub repo activity. Score 0-100, higher=safefr.
 // Run with n8n STOPPED. Deploy: node tools/deploy_scoring.js [--update]
-const fs = require('fs'), path = require('path'), crypto = require('crypto');
+const path = require('path'), crypto = require('crypto');
 const { deployWorkflow } = require('./lib/n8n-sqlite-deployer');
 const arg = k => (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1];
 const DB = arg('db') || path.join(__dirname, '..', 'docker-data',

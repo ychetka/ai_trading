@@ -1,0 +1,16 @@
+# Copyright (c) 2026 Alexandr Varenic / ychetka. All rights reserved.
+# Licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).
+# For commercial use, please contact the author.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.{py,toml}]
+indent_size = 4
