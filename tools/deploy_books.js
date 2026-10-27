@@ -10,15 +10,13 @@
 //   GET /webhook/books-ui          → web UI (standalone HTML page)
 //   Schedule 15min                 → collector: universe snapshots → JSONL (30d)
 // Run with n8n STOPPED. Deploy: node tools/deploy_books.js
-const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
+const { deployWorkflow } = require('./lib/n8n-sqlite-deployer');
 const arg = k => (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1];
 const DB = arg('db') || path.join(__dirname, '..', 'docker-data',
   'volumes/crypto-analyst_n8n_storage/_data/.n8n/database.sqlite');
 
-const WF_ID = crypto.randomUUID().slice(0, 16);
-const VER_ID = crypto.randomUUID();
-const H1 = crypto.randomUUID(), H2 = crypto.randomUUID(), H3 = crypto.randomUUID();
+const H1 = crypto.randomUUID(), H2 = crypto.randomUUID(), H3 = crypto.randomUUID(), H4 = crypto.randomUUID();
 
 // ---------- shared adapter code (used by the live node and the collector) ----------
 const ADAPTERS = String.raw`
@@ -106,15 +104,60 @@ for(const sym of syms){
   await new Promise(r=>setTimeout(r,300));
 }
 if(rows.length)fs.appendFileSync(HIST,rows.map(r=>JSON.stringify(r)).join('\n')+'\n');
+// wall persistence tracker: snapshot walls -> absolute-price chains (issue #25)
+const WST='/home/node/.n8n/walls_state.json', WEV='/home/node/.n8n/wall_events.jsonl';
+const ws=(()=>{try{return JSON.parse(fs.readFileSync(WST,'utf8'));}catch(e){return{chains:[]};}})();
+ws.chains=ws.chains||[];
+const WMIN=500000,WDIST=0.3,WBAND=0.75,WTOUCH=0.35;
+const wEvents=[];
+for(const r of rows){
+  const mid=r.agg.mid;if(!mid)continue;
+  const wl=[...(r.agg.wallsA||[]).map(w=>({side:'A',pct:w[0],usd:w[1]})),
+            ...(r.agg.wallsB||[]).map(w=>({side:'B',pct:w[0],usd:w[1]}))]
+    .filter(w=>w.usd>=WMIN&&Math.abs(w.pct)>=WDIST)
+    .map(w=>({...w,px:mid*(1+w.pct/100)}));
+  const seen=new Set();
+  for(const w of wl){
+    let best=null,bd=1e9;
+    ws.chains.forEach((c,j)=>{
+      if(c.sym!==r.sym||c.side!==w.side||seen.has(j))return;
+      const d=Math.abs(w.px/c.px-1)*100;
+      if(d<bd){best=j;bd=d;}});
+    if(best!==null&&bd<=WBAND){seen.add(best);const c=ws.chains[best];
+      c.lastSeen=r.ts;c.n=(c.n||1)+1;c.usdMax=Math.max(c.usdMax||0,w.usd);}
+    else ws.chains.push({sym:r.sym,side:w.side,px:w.px,usdMax:w.usd,start:r.ts,lastSeen:r.ts,n:1,touched:false});
+  }
+  for(let j=ws.chains.length-1;j>=0;j--){
+    const c=ws.chains[j];
+    if(c.sym!==r.sym)continue;
+    if(Math.abs(mid/c.px-1)*100<=WTOUCH)c.touched=true;
+    let out=null;
+    if(c.side==='A'&&mid>c.px)out='break';
+    else if(c.side==='B'&&mid<c.px)out='break';
+    else if(c.lastSeen<r.ts)out=c.touched?'hold':'pull';
+    if(out){
+      wEvents.push({type:'wall',sym:c.sym,side:c.side,px:+c.px.toPrecision(7),usd:c.usdMax,
+        persistMin:Math.round((c.lastSeen-c.start)/60000)+15,touched:c.touched,outcome:out,ts:r.ts});
+      ws.chains.splice(j,1);
+    }
+  }
+  r.agg.persistWalls=ws.chains.filter(c=>c.sym===r.sym)
+    .map(c=>({side:c.side,px:+c.px.toPrecision(7),usd:c.usdMax,persistMin:Math.round((r.ts-c.start)/60000)+15}))
+    .filter(c=>c.persistMin>=120);
+}
+if(wEvents.length)try{fs.appendFileSync(WEV,wEvents.map(e=>JSON.stringify(e)).join('\n')+'\n');}catch(e){}
+try{fs.writeFileSync(WST,JSON.stringify({chains:ws.chains.slice(-400)}));}catch(e){}
 // rotation: once a day drop everything older than 30 days
 const day=new Date().toISOString().slice(0,10);
 const st=(()=>{try{return JSON.parse(fs.readFileSync(SVC,'utf8'));}catch(e){return{};}})();
 if(st.pruneDay!==day){
   try{
     const cut=Date.now()-30*86400e3;
-    const lines=fs.readFileSync(HIST,'utf8').split('\n').filter(l=>{
-      if(!l)return false;try{return JSON.parse(l).ts>cut;}catch(e){return false;}});
-    fs.writeFileSync(HIST,lines.join('\n')+(lines.length?'\n':''));
+    for(const f of [HIST,WEV])try{
+      const lines=fs.readFileSync(f,'utf8').split('\n').filter(l=>{
+        if(!l)return false;try{return JSON.parse(l).ts>cut;}catch(e){return false;}});
+      fs.writeFileSync(f,lines.join('\n')+(lines.length?'\n':''));
+    }catch(e){}
   }catch(e){}
   st.pruneDay=day;fs.writeFileSync(SVC,JSON.stringify(st));
 }
@@ -222,6 +265,24 @@ live();hist();
 </script></body></html>`;
 const codeUI = 'const html=' + JSON.stringify(HTML_PAGE) + ';return[{json:{html}}];';
 
+// ---------- node 5: persistent walls ----------
+const codeWalls = String.raw`
+const fs=require('fs');
+const q=$input.first().json.query||{};
+const want=(q.symbol||'').toUpperCase();
+const minMin=+(q.minMin||120);
+let ws={chains:[]};
+try{ws=JSON.parse(fs.readFileSync('/home/node/.n8n/walls_state.json','utf8'));}catch(e){}
+const now=Date.now();
+let active=(ws.chains||[]).map(c=>({...c,persistMin:Math.round((now-c.start)/60000)}));
+if(want)active=active.filter(c=>c.sym===want);
+active=active.filter(c=>c.persistMin>=minMin).sort((a,b)=>b.persistMin-a.persistMin);
+let events=[];
+try{events=fs.readFileSync('/home/node/.n8n/wall_events.jsonl','utf8').trim().split('\n').map(JSON.parse);}catch(e){}
+if(want)events=events.filter(e=>e.sym===want);
+return[{json:{active,activeCount:active.length,recentEvents:events.slice(-100)}}];
+`;
+
 const nodes = [
   {
     parameters: { rule: { interval: [{ field: 'minutes', minutesInterval: 15 }] } },
@@ -268,6 +329,16 @@ const nodes = [
       options: { responseHeaders: { entries: [{ name: 'Content-Type', value: 'text/html; charset=utf-8' }] } } },
     id: 'b-resp', name: 'Respond HTML',
     type: 'n8n-nodes-base.respondToWebhook', typeVersion: 1.2, position: [60, 440]
+  },
+  {
+    parameters: { httpMethod: 'GET', path: 'book-walls', responseMode: 'lastNode', options: {}, webhookId: H4 },
+    id: 'b-wall-hook', name: 'Wall Webhook',
+    type: 'n8n-nodes-base.webhook', typeVersion: 2, position: [-400, 640], webhookId: H4
+  },
+  {
+    parameters: { jsCode: codeWalls },
+    id: 'b-wall', name: 'Wall Code',
+    type: 'n8n-nodes-base.code', typeVersion: 2, position: [-160, 640]
   }
 ];
 const connections = {
@@ -275,75 +346,24 @@ const connections = {
   'Books Webhook': { main: [[{ node: 'Books Aggregator', type: 'main', index: 0 }]] },
   'History Webhook': { main: [[{ node: 'History Code', type: 'main', index: 0 }]] },
   'UI Webhook': { main: [[{ node: 'UI Page', type: 'main', index: 0 }]] },
-  'UI Page': { main: [[{ node: 'Respond HTML', type: 'main', index: 0 }]] }
+  'UI Page': { main: [[{ node: 'Respond HTML', type: 'main', index: 0 }]] },
+  'Wall Webhook': { main: [[{ node: 'Wall Code', type: 'main', index: 0 }]] }
 };
 
-const now = new Date().toISOString().replace('T', ' ').slice(0, 23);
-const db = new DatabaseSync(DB);
-db.exec('BEGIN');
-const existing = db.prepare(`SELECT id FROM workflow_entity WHERE name='Books Aggregator (svc)'`).get();
-let wf;
-if (existing) {
-  wf = existing.id;
-  db.prepare(`INSERT INTO workflow_history
-    (versionId,workflowId,authors,createdAt,updatedAt,nodes,connections,name,autosaved)
-    VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(VER_ID, wf, 'deploy_books.js --update', now, now,
-      JSON.stringify(nodes), JSON.stringify(connections),
-      'Books Aggregator (svc)', 0);
-  db.prepare(`UPDATE workflow_entity SET nodes=?,connections=?,versionId=?,activeVersionId=?,updatedAt=? WHERE id=?`)
-    .run(JSON.stringify(nodes), JSON.stringify(connections), VER_ID, VER_ID, now, wf);
-  db.prepare(`UPDATE workflow_published_version SET publishedVersionId=?,updatedAt=? WHERE workflowId=?`)
-    .run(VER_ID, now, wf);
-  console.log('updated workflow', wf, 'version', VER_ID);
-} else {
-  wf = WF_ID;
-  db.prepare(`INSERT INTO workflow_entity
-    (id,name,active,nodes,connections,settings,versionId,triggerCount,createdAt,updatedAt,isArchived,versionCounter,activeVersionId)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL)`)
-    .run(WF_ID, 'Books Aggregator (svc)', 1,
-      JSON.stringify(nodes), JSON.stringify(connections),
-      JSON.stringify({ executionOrder: 'v1' }), VER_ID, 0, now, now, 0, 1);
-  db.prepare(`INSERT INTO workflow_history
-    (versionId,workflowId,authors,createdAt,updatedAt,nodes,connections,name,autosaved)
-    VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(VER_ID, wf, 'deploy_books.js', now, now,
-      JSON.stringify(nodes), JSON.stringify(connections),
-      'Books Aggregator (svc)', 0);
-  db.prepare(`UPDATE workflow_entity SET activeVersionId=? WHERE id=?`)
-    .run(VER_ID, wf);
-  db.prepare(`INSERT INTO workflow_published_version
-    (workflowId,publishedVersionId,createdAt,updatedAt)
-    VALUES (?,?,?,?)`)
-    .run(wf, VER_ID, now, now);
-  console.log('inserted workflow', wf, 'version', VER_ID);
-}
-// aux records: webhooks + shared + trigger_status (without them triggers don't register)
-db.prepare(`DELETE FROM webhook_entity WHERE workflowId=?`).run(wf);
-const hooks = [
-  ['book', 'GET', 'Books Webhook'],
-  ['book-history', 'GET', 'History Webhook'],
-  ['books-ui', 'GET', 'UI Webhook'],
-];
-for (const [p, m, n] of hooks) {
-  db.prepare(`INSERT INTO webhook_entity (workflowId,webhookPath,method,node,webhookId,pathLength) VALUES (?,?,?,?,?,?)`)
-    .run(wf, p, m, n, null, null);
-}
-const proj = db.prepare(`SELECT projectId FROM shared_workflow WHERE workflowId='66fb7895-f0b3-47'`).get();
-if (proj) db.prepare(`INSERT OR IGNORE INTO shared_workflow (workflowId,projectId,role) VALUES (?,?,?)`)
-  .run(wf, proj.projectId, 'workflow:owner');
-db.prepare(`DELETE FROM workflow_publication_trigger_status WHERE workflowId=?`).run(wf);
-const trig = [
-  ['b-sch', 'in-memory'], ['b-hook', 'persisted'], ['b-hist-hook', 'persisted'],
-  ['b-ui-hook', 'persisted'], ['b-collect', 'persisted'], ['b-code', 'persisted'],
-  ['b-hist', 'persisted'], ['b-ui', 'persisted'], ['b-resp', 'persisted'],
-];
-for (const [nid, kind] of trig)
-  db.prepare(`INSERT INTO workflow_publication_trigger_status (workflowId,nodeId,versionId,status,errorMessage,createdAt,updatedAt,triggerKind) VALUES (?,?,?,?,?,?,?,?)`)
-    .run(wf, nid, VER_ID, 'activated', null, now, now, kind);
-db.exec('COMMIT');
-db.close();
-
-fs.writeFileSync(path.join(__dirname, '..', 'workflow-books.json'),
-  JSON.stringify({ name: 'Books Aggregator (svc)', nodes, connections }, null, 2));
-console.log('snapshot -> workflow-books.json');
+deployWorkflow({
+  dbPath: DB, name: 'Books Aggregator (svc)',
+  nodes, connections, author: 'deploy_books.js',
+  hooks: [
+    ['book', 'GET', 'Books Webhook'],
+    ['book-history', 'GET', 'History Webhook'],
+    ['books-ui', 'GET', 'UI Webhook'],
+    ['book-walls', 'GET', 'Wall Webhook'],
+  ],
+  triggers: [
+    ['b-sch', 'in-memory'], ['b-hook', 'persisted'], ['b-hist-hook', 'persisted'],
+    ['b-ui-hook', 'persisted'], ['b-wall-hook', 'persisted'], ['b-collect', 'persisted'],
+    ['b-code', 'persisted'], ['b-hist', 'persisted'], ['b-ui', 'persisted'],
+    ['b-wall', 'persisted'], ['b-resp', 'persisted'],
+  ],
+  snapshotPath: path.join(__dirname, '..', 'workflow-books.json'),
+});
