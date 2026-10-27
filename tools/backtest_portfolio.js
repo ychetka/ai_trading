@@ -85,8 +85,8 @@ const elig=new Array(grid.length).fill(null);
 if(ROLLING){
   const mOf=t=>{const d=new Date(t);return d.getUTCFullYear()*12+d.getUTCMonth();};
   const bounds=[];
-  for(let gi=0;gi<grid.length;gi++)
-    {if(gi===0||mOf(grid[gi])!==mOf(grid[gi-1]))bounds.push(gi);}
+  for(let gi=0;gi<grid.length;gi++){
+    if(gi===0||mOf(grid[gi])!==mOf(grid[gi-1]))bounds.push(gi);}
   for(const bgi of bounds){
     const ts=grid[bgi],scored=[];
     for(const s in series){

@@ -85,8 +85,8 @@ function symTest(bars,sym,rows){
       if(inTrade)continue;
     }
     // entry
-    if(!Number.isFinite(atr[i])||!Number.isFinite(up[i])||!Number.isFinite(vSma[i]))
-      {continue;}
+    if(!Number.isFinite(atr[i])||!Number.isFinite(up[i])||!Number.isFinite(vSma[i])){
+      continue;}
     const bw=(up[i]-dn[i])/cSma[i];
     const sq=SQUEEZE?bw<=q20(win):true;
     const volOK=b.v>1.5*vSma[i];

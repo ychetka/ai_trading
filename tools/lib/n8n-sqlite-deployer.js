@@ -40,7 +40,7 @@ const REQUIRED_ENTITY_COLS = ['id', 'name', 'active', 'nodes', 'connections',
 
 function guardSchema(db, allowDrift) {
   const tables = new Set(
-    db.prepare('SELECT name FROM sqlite_master WHERE type=\'table\'').all().map(r => r.name));
+    db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name));
   const missing = REQUIRED_TABLES.filter(t => !tables.has(t));
   if (missing.length)
     {throw new Error(`n8n schema guard: missing tables: ${missing.join(', ')}`);}
