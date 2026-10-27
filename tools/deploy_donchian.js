@@ -159,7 +159,7 @@ try{
     btcFunding:t[0]&&t[0].fundingRate!==undefined?+t[0].fundingRate:null,
     btcChg30d:chg30===null?null:+chg30.toFixed(2),
     btcVol:vol===null?null:+vol.toFixed(2),
-    regime:chg30===null?'unknown':chg30<=-10?'bear':chg30>=10?'bull':'neutral'};
+    regime:chg30===null?'unknown':chg30<=-7?'bear':chg30>=7?'bull':'neutral'};
 }catch(e){}
 
 // 1) virtual position exits on the last closed bar

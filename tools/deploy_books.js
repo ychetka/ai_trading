@@ -119,7 +119,7 @@ const regime=await(async()=>{try{
     btcFunding:t0.fundingRate===undefined?null:+t0.fundingRate,
     btcChg30d:chg30===null?null:+chg30.toFixed(2),
     btcVol:vol===null?null:+vol.toFixed(2),
-    regime:chg30===null?'unknown':chg30<=-10?'bear':chg30>=10?'bull':'neutral'};
+    regime:chg30===null?'unknown':chg30<=-7?'bear':chg30>=7?'bull':'neutral'};
 }catch(e){return null;}})();
 if(regime)rows.forEach(r=>r.regime=regime);
 // wall persistence tracker: snapshot walls -> absolute-price chains (issue #25)
