@@ -9,4 +9,4 @@ set -e
 cd "$(dirname "$0")/.."
 uvx ruff check .
 uvx ruff format --check .
-npx -y eslint@9 tools/
+npx -y eslint@10.13.0 tools/
