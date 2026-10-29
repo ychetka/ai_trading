@@ -1,0 +1,42 @@
+# Copyright (c) 2026 Alexandr Varenic / ychetka. All rights reserved.
+# Licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).
+# For commercial use, please contact the author.
+
+name: lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+
+      - name: ruff check
+        run: uvx ruff check .
+
+      - name: ruff format check
+        run: uvx ruff format --check .
+
+      - name: eslint (tools/)
+        run: npx -y eslint@10.13.0 tools/
+
+      - name: license header check
+        shell: bash
+        run: |
+          # Every published source file must start with the CC BY-NC header
+          # (within the first 20 lines, after shebang/version lines).
+          missing=0
+          for f in $(git ls-files 'tools/*.js' 'tools/*.sh' 'docker-static/*.py' '.github/workflows/*'); do
+            if ! head -20 "$f" | grep -q 'CC BY-NC'; then
+              echo "missing license header: $f"
+              missing=1
+            fi
+          done
+          exit $missing
