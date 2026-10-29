@@ -96,7 +96,7 @@ function supClusters(bars) {
   }
 
   // mandatory minimum: a support with 2+ touches within ≤15% below
-  let cands = rows.filter(r => r.supN >= 2 && r.distSup != null && r.distSup <= 0.15);
+  const cands = rows.filter(r => r.supN >= 2 && r.distSup != null && r.distSup <= 0.15);
 
   // account-ratio (long overload) only for survivors — saves requests
   for (const r of cands) {
@@ -109,11 +109,11 @@ function supClusters(bars) {
 
   // score: support strength + proximity + pullback depth − long overload
   for (const r of cands)
-    r.score = r.supN * 0.4 + (0.15 - r.distSup) * 100 * 0.25
+    {r.score = r.supN * 0.4 + (0.15 - r.distSup) * 100 * 0.25
             + Math.min(-r.ret30, 0.3) * 30 + (0.0001 - Math.max(r.fund, -0.001)) * 500
             + (r.held ? 1.5 : 0) + (r.ret7 >= -0.03 ? 0.5 : 0)
             + (r.buyRatio != null ? (0.72 - r.buyRatio) * 20 : 0)
-            - (r.range > 0.65 ? 2 : 0);                 // penalty for upper range
+            - (r.range > 0.65 ? 2 : 0);}                 // penalty for upper range
   cands.sort((a, b) => b.score - a.score);
 
   if (JSON_OUT) { console.log(JSON.stringify(cands.slice(0, TOP), null, 1)); return; }

@@ -7,7 +7,7 @@ For commercial use, please contact the author.
 # [ARCHIVED] Realistic concept: Sniper AI Risk Radar (SMC + VRVP Adaptive Analyst)
 
 > Retired pre-v3 concept document, kept for history. The SMC family of
-> hypotheses was later falsified by deep-history backtests — see
+> hypotheses was later rejected by deep-history backtests — see
 > STRATEGY.md. Original era: TradingView alerts → n8n → LLM → Telegram.
 
 A hybrid algo-trading complex combining leading TradingView indicators

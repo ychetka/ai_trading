@@ -1,0 +1,14 @@
+# Copyright (c) 2026 Alexandr Varenic / ychetka. All rights reserved.
+# Licensed under the Creative Commons Attribution-NonCommercial 4.0
+# International License (CC BY-NC 4.0).
+# For commercial use, please contact the author.
+
+[Unit]
+Description=Crypto collector heartbeat timer
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+
+[Install]
+WantedBy=timers.target

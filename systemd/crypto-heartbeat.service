@@ -1,0 +1,20 @@
+# Copyright (c) 2026 Alexandr Varenic / ychetka. All rights reserved.
+# Licensed under the Creative Commons Attribution-NonCommercial 4.0
+# International License (CC BY-NC 4.0).
+# For commercial use, please contact the author.
+
+# Dead-man's switch for the collector stack. Runs tools/heartbeat.js once;
+# scheduling is done by crypto-heartbeat.timer. Install:
+#   cp systemd/crypto-heartbeat.{service,timer} ~/.config/systemd/user/
+#   systemctl --user enable --now crypto-heartbeat.timer
+[Unit]
+Description=Crypto collector heartbeat check
+After=rootless-docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/trade-ai-analitic
+Environment=PATH=%h/.nvm/versions/node/v24.18.0/bin:%h/projects/trade-ai-analitic/docker-static/docker:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=%h
+Environment=DOCKER_HOST=unix://%h/projects/trade-ai-analitic/docker-static/run/docker.sock
+ExecStart=%h/.nvm/versions/node/v24.18.0/bin/node tools/heartbeat.js

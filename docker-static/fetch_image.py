@@ -6,11 +6,11 @@
 """Fetch a Docker Hub image, merge layers into a flat rootfs with all
 ownership rewritten to 0:0 (for single-uid rootless docker), and print
 the flattened tar path + import args."""
+
 import io
 import json
 import os
 import shutil
-import stat
 import sys
 import tarfile
 import urllib.request
@@ -21,12 +21,14 @@ WORK = os.path.expanduser("~/docker-static/image-work")
 ROOTFS = os.path.join(WORK, "rootfs")
 OUT_TAR = os.path.join(WORK, "n8n-flat.tar")
 
-MT_LIST = ",".join([
-    "application/vnd.oci.image.index.v1+json",
-    "application/vnd.docker.distribution.manifest.list.v2+json",
-    "application/vnd.docker.distribution.manifest.v2+json",
-    "application/vnd.oci.image.manifest.v1+json",
-])
+MT_LIST = ",".join(
+    [
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+        "application/vnd.oci.image.manifest.v1+json",
+    ]
+)
 
 
 def req(url, accept=None, token=None):
@@ -40,65 +42,65 @@ def req(url, accept=None, token=None):
 
 def main():
     print("-> auth token", flush=True)
-    tok = json.load(req(
-        "https://auth.docker.io/token?service=registry.docker.io"
-        f"&scope=repository:{REPO}:pull"
-    ))["token"]
+    tok = json.load(req(f"https://auth.docker.io/token?service=registry.docker.io&scope=repository:{REPO}:pull"))[
+        "token"
+    ]
 
     print("-> manifest", flush=True)
-    mresp = req(f"https://registry-1.docker.io/v2/{REPO}/manifests/{TAG}",
-                accept=MT_LIST, token=tok)
+    mresp = req(f"https://registry-1.docker.io/v2/{REPO}/manifests/{TAG}", accept=MT_LIST, token=tok)
     manifest = json.load(mresp)
     mt = manifest.get("mediaType", "")
     if "index" in mt or "manifest.list" in mt:
         for m in manifest["manifests"]:
             p = m.get("platform", {})
             if p.get("architecture") == "amd64" and p.get("os") == "linux":
-                manifest = json.load(req(
-                    f"https://registry-1.docker.io/v2/{REPO}/manifests/{m['digest']}",
-                    accept="application/vnd.oci.image.manifest.v1+json,"
-                           "application/vnd.docker.distribution.manifest.v2+json",
-                    token=tok))
+                manifest = json.load(
+                    req(
+                        f"https://registry-1.docker.io/v2/{REPO}/manifests/{m['digest']}",
+                        accept="application/vnd.oci.image.manifest.v1+json,"
+                        "application/vnd.docker.distribution.manifest.v2+json",
+                        token=tok,
+                    )
+                )
                 break
         else:
             sys.exit("no amd64 manifest found")
 
-    cfg = json.load(req(
-        f"https://registry-1.docker.io/v2/{REPO}/blobs/{manifest['config']['digest']}",
-        token=tok))
+    cfg = json.load(req(f"https://registry-1.docker.io/v2/{REPO}/blobs/{manifest['config']['digest']}", token=tok))
     icfg = cfg.get("config", {})
-    print("image config:", json.dumps(
-        {k: icfg.get(k) for k in ("Env", "Entrypoint", "Cmd", "WorkingDir", "User")},
-        indent=2)[:3000], flush=True)
+    print(
+        "image config:",
+        json.dumps({k: icfg.get(k) for k in ("Env", "Entrypoint", "Cmd", "WorkingDir", "User")}, indent=2)[:3000],
+        flush=True,
+    )
 
     shutil.rmtree(ROOTFS, ignore_errors=True)
     os.makedirs(ROOTFS)
 
     for i, layer in enumerate(manifest["layers"]):
         dg = layer["digest"]
-        print(f"-> layer {i+1}/{len(manifest['layers'])} {dg[:20]}", flush=True)
-        data = req(
-            f"https://registry-1.docker.io/v2/{REPO}/blobs/{dg}",
-            token=tok).read()
+        print(f"-> layer {i + 1}/{len(manifest['layers'])} {dg[:20]}", flush=True)
+        data = req(f"https://registry-1.docker.io/v2/{REPO}/blobs/{dg}", token=tok).read()
         if "zstd" in layer.get("mediaType", "") or data[:4] == b"\x28\xb5\x2f\xfd":
             import subprocess
-            data = subprocess.run(["zstd", "-d", "-q", "-c"],
-                                  input=data, capture_output=True, check=True).stdout
+
+            data = subprocess.run(["zstd", "-d", "-q", "-c"], input=data, capture_output=True, check=True).stdout
         apply_layer(io.BytesIO(data))
 
     print("-> repack flattened tar", flush=True)
     with tarfile.open(OUT_TAR, "w") as tar:
+
         def filt(ti):
             ti.uid = ti.gid = 0
             ti.uname = ti.gname = "root"
             if ti.isdev() or ti.isfifo():
                 return None
             return ti
+
         tar.add(ROOTFS, arcname=".", filter=filt)
 
     print("DONE", flush=True)
-    print("CONFIG_JSON=" + json.dumps(
-        {k: icfg.get(k) for k in ("Env", "Entrypoint", "Cmd", "WorkingDir")}))
+    print("CONFIG_JSON=" + json.dumps({k: icfg.get(k) for k in ("Env", "Entrypoint", "Cmd", "WorkingDir")}))
     print("TAR=" + OUT_TAR)
 
 
@@ -116,9 +118,9 @@ def apply_layer(fobj):
                 if os.path.isdir(d):
                     for e in os.listdir(d):
                         p = os.path.join(d, e)
-                        shutil.rmtree(p, ignore_errors=True) \
-                            if os.path.isdir(p) and not os.path.islink(p) \
-                            else os.unlink(p)
+                        shutil.rmtree(p, ignore_errors=True) if os.path.isdir(p) and not os.path.islink(
+                            p
+                        ) else os.unlink(p)
                 continue
             if base.startswith(".wh."):
                 target = os.path.join(ROOTFS, dname, base[4:])

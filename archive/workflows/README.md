@@ -15,4 +15,4 @@ duplicates what `archive/tools/` + `archive/docs/` already describe.
   description_v4.3.md, description_v4.4.md, description_v4.5.md
 - The deterministic engine code (Trade Calc equivalent):
   archive/tools/eql_monitor.js, screener.js, sqz_rank.js
-- Backtests that falsified the approach: archive/tools/backtest_*.js
+- Backtests that rejected the approach: archive/tools/backtest_*.js

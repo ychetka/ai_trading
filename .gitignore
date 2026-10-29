@@ -38,4 +38,6 @@ Thumbs.db
 
 # klines cache for the deep backtest (re-downloadable)
 data/
-data/
+
+# generated n8n workflow snapshots (written by tools/deploy_*.js)
+workflow-*.json

@@ -7,8 +7,8 @@
 // into the n8n SQLite DB per the version-pointer procedure (three pointers).
 // Run with the n8n container STOPPED.
 //   node tools/deploy_donchian.js [--db=/path/database.sqlite]
-const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
+const { deployWorkflow } = require('./lib/n8n-sqlite-deployer');
 const arg = k => (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1];
 const DB = arg('db') || path.join(__dirname, '..', 'docker-data',
   'volumes/crypto-analyst_n8n_storage/_data/.n8n/database.sqlite');
@@ -21,8 +21,6 @@ const ENV_TXT = envFile(path.join(__dirname,'..','ENV')) || envFile(path.join(__
 const TG_CHAT_ID = process.env.TG_CHAT_ID ||
   (ENV_TXT.match(/^\s*TG_CHAT_ID\s*=\s*"?([^"\n]+)"?/m) || [])[1] || 'YOUR_CHAT_ID';
 
-const WF_ID = crypto.randomUUID().slice(0, 16);
-const VER_ID = crypto.randomUUID();
 const HOOK_ID = crypto.randomUUID();
 
 const jsCode = String.raw`
@@ -145,6 +143,25 @@ need.add('BTCUSDT');
 const data={};
 for(const s of need){try{data[s]=await klines(s);}catch(e){dbg.kErr++;}}
 
+// market regime tag (issue #29): stratify forward stats by regime
+let regime=null;
+try{
+  const t=(await api('/v5/market/tickers?category=linear&symbol=BTCUSDT')).list||[];
+  const kl=(await api('/v5/market/kline?category=linear&symbol=BTCUSDT&interval=D&limit=32')).list||[];
+  const cls=kl.map(r=>+r[4]).filter(v=>v>0).slice(1);  // drop unclosed daily bar
+  const last=cls[0],prev=cls.slice(1,31);
+  const sma=prev.length?prev.reduce((a,b)=>a+b,0)/prev.length:null;
+  const rets=[];for(let i=0;i<Math.min(14,cls.length-1);i++)rets.push(Math.log(cls[i]/cls[i+1]));
+  const rm=rets.length?rets.reduce((a,b)=>a+b,0)/rets.length:0;
+  const vol=rets.length>1?Math.sqrt(rets.reduce((a,b)=>a+(b-rm)**2,0)/(rets.length-1))*100:null;
+  const chg30=last&&sma?(last/sma-1)*100:null;
+  regime={btcChg24h:t[0]&&t[0].price24hPcnt!==undefined?+(+t[0].price24hPcnt*100).toFixed(2):null,
+    btcFunding:t[0]&&t[0].fundingRate!==undefined?+t[0].fundingRate:null,
+    btcChg30d:chg30===null?null:+chg30.toFixed(2),
+    btcVol:vol===null?null:+vol.toFixed(2),
+    regime:chg30===null?'unknown':chg30<=-7?'bear':chg30>=7?'bull':'neutral'};
+}catch(e){}
+
 // 1) virtual position exits on the last closed bar
 for(let k=st.positions.length-1;k>=0;k--){
   dbg.posChk++;
@@ -164,7 +181,7 @@ for(let k=st.positions.length-1;k>=0;k--){
   const R=(exit-pos.entry)/pos.risk;
   const reason=hit?'TRAIL_HIT':'EXPIRY';
   st.stats.n++;st.stats.sumR+=R;if(R>0)st.stats.wins++;
-  st.trades.push({sym:pos.sym,entry:pos.entry,exit,R:+R.toFixed(3),entryTs:pos.entryTs,exitTs:now,bars:pos.barsHeld|0,reason,slipIn:pos.slipIn,slipOut:+slip.toFixed(5),book:pos.book||null});
+  st.trades.push({sym:pos.sym,entry:pos.entry,exit,R:+R.toFixed(3),entryTs:pos.entryTs,exitTs:now,bars:pos.barsHeld|0,reason,slipIn:pos.slipIn,slipOut:+slip.toFixed(5),book:pos.book||null,regime:pos.regime||null,exitRegime:regime});
   if(st.trades.length>500)st.trades.shift();
   events.push({type:'exit',sym:pos.sym,R:+R.toFixed(2),exit:+exit.toPrecision(6),hit,reason,heldH:pos.barsHeld|0});
   dbg.exits++;
@@ -212,7 +229,7 @@ for(const c of cand){
   const risk=entry-stop0;
   if(!(risk>0))continue;
   const book=(await svcBook(c.s))||await snapBook(c.s);
-  st.positions.push({sym:c.s,entry,stop0,risk,slipIn:+slip.toFixed(5),entryTs:now,entryBarTs:c.sigTs,barsHeld:0,book});
+  st.positions.push({sym:c.s,entry,stop0,risk,slipIn:+slip.toFixed(5),entryTs:now,entryBarTs:c.sigTs,barsHeld:0,book,regime});
   (st.lastSig=st.lastSig||{})[c.s]=c.sigTs;
   events.push({type:'entry',sym:c.s,entry:+entry.toPrecision(6),
     stop:+stop0.toPrecision(6),riskPct:+(risk/entry*100).toFixed(2),
@@ -321,51 +338,10 @@ const connections = {
   'Donchian Monitor': { main: [[{ node: 'Send Donchian', type: 'main', index: 0 }]] }
 };
 
-const now = new Date().toISOString().replace('T', ' ').slice(0, 23);
-const UPDATE = process.argv.includes('--update');
-const db = new DatabaseSync(DB);
-db.exec('BEGIN');
-if (UPDATE) {
-  const wf = db.prepare(`SELECT id FROM workflow_entity WHERE name LIKE 'Donchian%'`).get();
-  if (!wf) { console.error('workflow not found — run without --update first'); process.exit(1); }
-  db.prepare(`INSERT INTO workflow_history
-    (versionId,workflowId,authors,createdAt,updatedAt,nodes,connections,name,autosaved)
-    VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(VER_ID, wf.id, 'deploy_donchian.js --update', now, now,
-      JSON.stringify(nodes), JSON.stringify(connections),
-      'Donchian Scanner (info) v4.5.1', 0);
-  db.prepare(`UPDATE workflow_entity SET nodes=?,connections=?,versionId=?,activeVersionId=?,updatedAt=? WHERE id=?`)
-    .run(JSON.stringify(nodes), JSON.stringify(connections), VER_ID, VER_ID, now, wf.id);
-  db.prepare(`UPDATE workflow_published_version SET publishedVersionId=?,updatedAt=? WHERE workflowId=?`)
-    .run(VER_ID, now, wf.id);
-  db.prepare(`UPDATE workflow_publication_trigger_status SET versionId=?,updatedAt=? WHERE workflowId=?`)
-    .run(VER_ID, now, wf.id);
-  console.log('updated workflow', wf.id, 'version', VER_ID);
-} else {
-  // cyclic FK entity<->history: insert entity with NULL, then history, then UPDATE
-  db.prepare(`INSERT INTO workflow_entity
-    (id,name,active,nodes,connections,settings,versionId,triggerCount,createdAt,updatedAt,isArchived,versionCounter,activeVersionId)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL)`)
-    .run(WF_ID, 'Donchian Scanner (info) v4.5.1', 1,
-      JSON.stringify(nodes), JSON.stringify(connections),
-      JSON.stringify({ executionOrder: 'v1' }), VER_ID, 0, now, now, 0, 1);
-  db.prepare(`INSERT INTO workflow_history
-    (versionId,workflowId,authors,createdAt,updatedAt,nodes,connections,name,autosaved)
-    VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(VER_ID, WF_ID, 'deploy_donchian.js', now, now,
-      JSON.stringify(nodes), JSON.stringify(connections),
-      'Donchian Scanner (info) v4.5.1', 0);
-  db.prepare(`UPDATE workflow_entity SET activeVersionId=? WHERE id=?`)
-    .run(VER_ID, WF_ID);
-  db.prepare(`INSERT INTO workflow_published_version
-    (workflowId,publishedVersionId,createdAt,updatedAt)
-    VALUES (?,?,?,?)`)
-    .run(WF_ID, VER_ID, now, now);
-  console.log('inserted workflow', WF_ID, 'version', VER_ID);
-}
-db.exec('COMMIT');
-db.close();
-
-const snapshot = { name: 'Donchian Scanner (info) v4.5.1', nodes, connections };
-fs.writeFileSync(path.join(__dirname, '..', 'workflow-donchian.json'),
-  JSON.stringify(snapshot, null, 2));
+deployWorkflow({
+  dbPath: DB, name: 'Donchian Scanner (info) v4.5.1', matchLike: 'Donchian%',
+  nodes, connections, author: 'deploy_donchian.js',
+  hooks: [['donchian', 'POST', 'Donchian Webhook']],
+  triggers: [['d-sch', 'in-memory'], ['d-hook', 'persisted'], ['d-code', 'persisted'], ['d-tg', 'persisted']],
+  snapshotPath: path.join(__dirname, '..', 'workflow-donchian.json'),
+});
