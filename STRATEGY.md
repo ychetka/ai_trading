@@ -7,7 +7,7 @@ For commercial use, please contact the author.
 # Trade AI Analyst — strategy, hypotheses and status
 
 This document records the project goal, architecture, and the validated
-and falsified hypotheses.
+and rejected hypotheses.
 
 ## Mission
 
@@ -45,7 +45,7 @@ Bybit V5 (1H klines, rolling top-10 liquid crypto perps by 30d turnover)
 - `screen_midterm_longs.js`: manual mid-term long screener.
 - `fetch_history.js`: Bybit klines → `data/klines` disk cache.
 
-## Audit results — SMC epoch (falsified)
+## Audit results — SMC epoch (rejected)
 
 | Config | dec | WR | R | R/trade |
 |---|---|---|---|---|
@@ -68,7 +68,7 @@ Key facts:
 - EQH shorts: +21.5R on the last 500 bars turned out to be −106R on
   1000 — window luck, not edge.
 
-## Working hypothesis v5.0 (later falsified)
+## Working hypothesis v5.0 (later rejected)
 
 **"armed-long = buying the end of panic".** The same trap (EQL pool
 below POC, limit at mid(POC,OB)) becomes positive only during acute
@@ -83,7 +83,7 @@ whether a symmetric short mode exists.
 
 ## Deep-history validation (2021-01 → 2026-10, 12 majors, backtest_deep.js)
 
-**Hypothesis v5.1 "armed-long = buying panic in bull regime" — FALSIFIED.**
+**Hypothesis v5.1 "armed-long = buying panic in bull regime" — REJECTED.**
 
 36,924 armed signals, ~6 years: total **−5801.5R**, −0.16R/trade, WR 41%.
 
@@ -110,7 +110,7 @@ whether a symmetric short mode exists.
 
 ## Hypothesis v6.0: Cross-Sectional Momentum (backtest_csmom.js)
 
-After SMC falsification the logic was inverted: don't catch reversals,
+After SMC did not hold the logic was inverted: don't catch reversals,
 exploit autocorrelation of relative strength (retail buys the dip and
 shorts the rip — do the opposite).
 
@@ -202,7 +202,7 @@ Order-book / liquidity-map hypothesis series — closed:
 - "Long a dense liquidity layer, TP at the opposite layer" (ladder or
   per-layer stop): dead on the real Oct-2026 path — cascades eat
   consecutive layers (−2.8…−3.0% on the episode).
-- "Dense zone = magnet (price will come)": falsified on 6.7M levels —
+- "Dense zone = magnet (price will come)": rejected on 6.7M levels —
   dense clusters get touched LESS than single levels at equal distance;
   distance dominates, density confounded by proximity.
 - "Dense zone = fuel for movement already aimed at it": a weak real
@@ -237,7 +237,7 @@ Order-book / liquidity-map hypothesis series — closed:
 ## Codebase audit for v4.5.1 (2026-10-23)
 
 - SMC branch deactivated: both workflows active=0, `/webhook/tradingview`
-  unregistered (404). Hypothesis falsified — code and snapshots moved
+  unregistered (404). Hypothesis rejected — code and snapshots moved
   to archive/ (tools, workflows, pre-v4.5 docs).
 - Fixed in the live Donchian loop:
   · universe proxy aligned with the backtest — re-rank by 30d average

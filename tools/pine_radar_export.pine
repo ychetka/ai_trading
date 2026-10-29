@@ -6,7 +6,7 @@
 // ═══════════════════════════════════════════════════════════════════
 // PINE RADAR EXPORT — SMC AI Analyst data bridge
 // [ARCHIVED — SMC era. The workflow this fed is retired; kept for
-// reference. See STRATEGY.md for why SMC was falsified.]
+// reference. See STRATEGY.md for why SMC did not hold.]
 // Publishes 4 plots with the names expected by the n8n engine v4.4:
 //   "OB Low"      — low of the last bearish order block
 //   "Volume POC"  — volume-profile Point of Control over the window
