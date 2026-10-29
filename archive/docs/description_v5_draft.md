@@ -8,7 +8,7 @@ For commercial use, please contact the author.
 ## Autonomous scanner: Bybit API as the only data source
 
 > Retired draft. Never implemented as designed — the SMC family itself
-> was later falsified and the autonomous-scanner idea was reincarnated
+> was later rejected and the autonomous-scanner idea was reincarnated
 > on a different strategy (Donchian, see STRATEGY.md).
 
 Status: **proposal, never implemented**. Deferred pending v4.3 burn-in

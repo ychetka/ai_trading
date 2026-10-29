@@ -8,7 +8,7 @@ For commercial use, please contact the author.
 ## "Sniper AI Risk Radar" — Mean Reversion & Liquidity Sweeps
 ### Deterministic risk engine + AI commentator
 
-> Retired. Deactivated 2026-10-23 after deep-history backtests falsified
+> Retired. Deactivated 2026-10-23 after deep-history backtests rejected
 > the SMC mean-reversion family. Kept for history — see STRATEGY.md.
 
 Doc version: 4.3 (October 2026)
