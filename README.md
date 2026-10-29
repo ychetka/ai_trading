@@ -33,7 +33,7 @@ Donchian breakout from a squeeze, long-only:
 Validated by portfolio backtest with full frictions and OOS split:
 **+0.68R/trade, ~32% MaxDD, ~120 trades/year** on rolling top-10.
 Six years of Bybit history, 112 symbols — see `STRATEGY.md` for the
-full research arc, including the falsified SMC mean-reversion branch
+full research arc, including the SMC mean-reversion branch that did not hold
 (~37k signals → −0.16R/trade) and the cross-sectional-momentum
 alternative track.
 
@@ -53,7 +53,7 @@ alternative track.
 
 ```
 tools/             research + production code (scanner, backtests, deployers)
-archive/           retired SMC-era code and docs (falsified, kept for history)
+archive/           retired SMC-era code and docs (rejected, kept for history)
 docker-static/     rootless Docker toolchain binaries + supervisor scripts
 docker-data/       container state (gitignored — images, volumes, n8n DB)
 docker-compose.yml n8n service (rootless, host-net, localhost-only)

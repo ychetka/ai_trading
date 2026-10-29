@@ -1,0 +1,10 @@
+# Copyright (c) 2026 Alexandr Varenic / ychetka. All rights reserved.
+# Licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).
+# For commercial use, please contact the author.
+
+target-version = "py310"
+line-length = 120
+extend-exclude = ["archive", "quant-partner", "ai_studio_code.py", "docker-data", "data"]
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "BLE", "RUF"]
