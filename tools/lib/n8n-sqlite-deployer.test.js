@@ -104,6 +104,21 @@ test('schema guard rejects a db with unexpected latest migration', () => {
   assert.ok(r.versionId);
 });
 
+test('snapshotPath writes a snapshot and author lands in history', () => {
+  seed(EXPECTED_LATEST_MIGRATION);
+  const snap = path.join(dir, 'wf-snapshot.json');
+  const r = deployWorkflow({ dbPath, name: 'Snap WF', nodes: NODES,
+    connections: CONNS, author: 'test-suite', snapshotPath: snap });
+  const s = JSON.parse(fs.readFileSync(snap, 'utf8'));
+  assert.equal(s.name, 'Snap WF');
+  assert.deepEqual(s.nodes, NODES);
+  const db = new DatabaseSync(dbPath);
+  const h = db.prepare('SELECT authors FROM workflow_history WHERE versionId=?')
+    .get(r.versionId);
+  assert.equal(h.authors, 'test-suite');
+  db.close();
+});
+
 test('schema guard rejects a db missing required tables', () => {
   const db = new DatabaseSync(dbPath);
   db.exec('CREATE TABLE migrations(id INTEGER, timestamp INTEGER, name TEXT)');
