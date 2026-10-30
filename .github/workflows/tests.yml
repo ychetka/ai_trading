@@ -28,4 +28,4 @@ jobs:
           node-version: '24'
 
       - name: node:test suite
-        run: node --test tools
+        run: node --test 'tools/**/*.test.js'
