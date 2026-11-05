@@ -61,10 +61,11 @@ test('deriveEvents: surviving wall emits nothing', () => {
 test('liqMap: long entry produces pool below, short above', () => {
   const mids = [{ ts: 1e9, mid: 80000 }];
   const whales = [
-    { coin: 'BTC', type: 'open', ts: 1e9, usd: 1e6, sz: 1 },   // long at 80k
-    { coin: 'BTC', type: 'open', ts: 1e9, usd: 1e6, sz: -1 },  // short at 80k
-    { coin: 'ETH', type: 'open', ts: 1e9, usd: 1e6, sz: 1 },   // other coin ignored
-    { coin: 'BTC', type: 'close', ts: 1e9, usd: 1e6, sz: -1 }, // close ignored
+    { coin: 'BTC', type: 'open', ts: 1e9, usd: 1e6, sz: 1, addr: 'a1' },   // long at 80k
+    { coin: 'BTC', type: 'open', ts: 1e9, usd: 1e6, sz: -1, addr: 'a2' },  // short at 80k
+    { coin: 'ETH', type: 'open', ts: 1e9, usd: 1e6, sz: 1, addr: 'a3' },   // other coin ignored
+    { coin: 'BTC', type: 'open', ts: 1e9, usd: 2e6, sz: 1, addr: 'a4' },   // long to be closed
+    { coin: 'BTC', type: 'close', ts: 1e9, addr: 'a4' },                   // close strips a4's pools
   ];
   const { below, above } = liqMap(whales, mids, 80000, { coin: 'BTC', bucket: 0.5 });
   assert.ok(below.length > 0 && below.every(p => p.px < 80000), 'long-liq pools below missing');
@@ -72,6 +73,8 @@ test('liqMap: long entry produces pool below, short above', () => {
   // 10x long liq ~72k dominates -> nearest strong bucket < 74k
   const top = below.reduce((a, b) => (b.usd > a.usd ? b : a));
   assert.ok(top.px > 70000 && top.px < 76000, 'top long-liq bucket off: ' + top.px);
+  // a4's 2e6 contribution was removed by its close: only a1's 1e6*0.5 remains
+  assert.strictEqual(top.usd, 500000);
 });
 
 test('classify: base_down toward long-liq magnet', () => {

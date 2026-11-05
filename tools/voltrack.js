@@ -131,16 +131,25 @@ function liqMap(whales, mids, refMid, o = {}) {
     if (i > 0 && Math.abs(ts[i - 1] - t) < Math.abs(ts[i] - t)) i--;
     return Math.abs(ts[i] - t) <= 3600e3 ? px[i] : null;
   };
-  const pools = new Map();
+  // per-(addr,coin) position tracking: close rows carry no usd/sz, so a
+  // close removes whatever liq contributions that address previously added
+  const pools = new Map(), pos = new Map();
   for (const e of whales) {
-    if (e.coin !== coin || !['open', 'grow', 'close'].includes(e.type) || !e.usd) continue;
+    if (e.coin !== coin || !['open', 'grow', 'close'].includes(e.type)) continue;
+    const key = (e.addr || '?') + ':' + coin;
+    if (e.type === 'close') {
+      for (const c of pos.get(key) || []) pools.set(c.b, (pools.get(c.b) || 0) - c.w);
+      pos.delete(key);
+      continue;
+    }
+    if (!e.usd || !e.sz) continue;
     const e0 = at(e.ts); if (!e0) continue;
-    const sign = e.type === 'close' ? -1 : 1;
-    const sz = e.sz || (e.dir === 'short' ? -1 : 1); // closes may lack sz - infer long
     for (const [L, w] of lev) {
-      const lp = sz > 0 ? e0 * (1 - 1 / L) : e0 * (1 + 1 / L);
+      const lp = e.sz > 0 ? e0 * (1 - 1 / L) : e0 * (1 + 1 / L);
       const b = Math.round(lp / refMid / (bucket / 100)) * (bucket / 100) * refMid;
-      pools.set(b, (pools.get(b) || 0) + sign * Math.abs(e.usd) * w);
+      const wt = Math.abs(e.usd) * w;
+      pools.set(b, (pools.get(b) || 0) + wt);
+      (pos.get(key) || pos.set(key, []).get(key)).push({ b, w: wt });
     }
   }
   const below = [], above = [];
@@ -159,10 +168,12 @@ function classify(mid, pools, evs, wallsAgg, o = {}) {
   const bBrk = cnt('WALL_BREAK', 'B'), bPl = cnt('WALL_PULL', 'B'), bHd = cnt('WALL_HOLD', 'B');
   const aBrk = cnt('WALL_BREAK', 'A'), aPl = cnt('WALL_PULL', 'A'), aHd = cnt('WALL_HOLD', 'A');
   const reload = cnt('WALL_RELOAD'), flips = cnt('STACK_FLIP');
-  const longMagnet = pools.below.find(p => p.usd >= 20e6 && p.px >= mid * (1 - 0.10)) || pools.below[0] || null;
-  const shortMagnet = pools.above.find(p => p.usd >= 20e6 && p.px <= mid * (1 + 0.20)) || pools.above[0] || null;
+  // only pools with real size count as magnets; nearest bucket kept for info
+  const MIN_MAG = o.minMagnetUsd ?? 20e6;
+  const longMagnet = pools.below.find(p => p.usd >= MIN_MAG && p.px >= mid * (1 - 0.10)) || null;
+  const shortMagnet = pools.above.find(p => p.usd >= MIN_MAG && p.px <= mid * (1 + 0.20)) || null;
   const nearLong = longMagnet && Math.abs(mid - longMagnet.px) / mid * 100 <= zone;
-  const lidWall = (wallsAgg.wallsA || []).filter(w => w[0] <= lid && w[1] >= 20e6)
+  const lidWall = (wallsAgg.wallsA || []).filter(w => w[0] <= lid && w[0] >= (o.minDist ?? MIN_DIST) && w[1] >= 20e6)
     .sort((a, b) => b[1] - a[1])[0] || null;
   const askLid = !!lidWall;
   const stats = { bBrk, bPl, bHd, aBrk, aPl, aHd, reload, flips,
@@ -170,7 +181,7 @@ function classify(mid, pools, evs, wallsAgg, o = {}) {
     askUsd: +((wallsAgg.wallsA || []).reduce((s, w) => s + w[1], 0) / 1e6).toFixed(1) };
   let state = 'range', dir = 0, target = null;
   const reasons = [];
-  if (nearLong && bBrk + bPl > bHd * 3) {
+  if (nearLong && bBrk >= 1 && bBrk + bPl > bHd * 3) {
     state = 'cascade'; dir = -1; target = pools.below[1] || null;
     reasons.push('inside long-liq zone with breaks dominant - magnet failing');
   } else if (bBrk + bPl >= 3 && bBrk + bPl > (bHd + reload) * 2) {
