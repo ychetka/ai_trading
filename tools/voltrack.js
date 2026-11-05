@@ -153,7 +153,10 @@ function liqMap(whales, mids, refMid, o = {}) {
     }
   }
   const below = [], above = [];
-  for (const [p, usd] of pools) (p < refMid ? below : above).push({ px: +p.toPrecision(8), usd: +usd.toFixed(0) });
+  for (const [p, usd] of pools) {
+    if (usd <= 0) continue; // emptied buckets carry no resting interest
+    (p < refMid ? below : above).push({ px: +p.toPrecision(8), usd: +usd.toFixed(0) });
+  }
   below.sort((a, b) => b.px - a.px); above.sort((a, b) => a.px - b.px);
   return { below, above };
 }
@@ -177,8 +180,10 @@ function classify(mid, pools, evs, wallsAgg, o = {}) {
     .sort((a, b) => b[1] - a[1])[0] || null;
   const askLid = !!lidWall;
   const stats = { bBrk, bPl, bHd, aBrk, aPl, aHd, reload, flips,
-    bidUsd: +((wallsAgg.wallsB || []).reduce((s, w) => s + w[1], 0) / 1e6).toFixed(1),
-    askUsd: +((wallsAgg.wallsA || []).reduce((s, w) => s + w[1], 0) / 1e6).toFixed(1) };
+    bidUsd: +((wallsAgg.wallsB || []).filter(w => Math.abs(w[0]) >= (o.minDist ?? MIN_DIST))
+      .reduce((s, w) => s + w[1], 0) / 1e6).toFixed(1),
+    askUsd: +((wallsAgg.wallsA || []).filter(w => Math.abs(w[0]) >= (o.minDist ?? MIN_DIST))
+      .reduce((s, w) => s + w[1], 0) / 1e6).toFixed(1) };
   let state = 'range', dir = 0, target = null;
   const reasons = [];
   if (nearLong && bBrk >= 1 && bBrk + bPl > bHd * 3) {
