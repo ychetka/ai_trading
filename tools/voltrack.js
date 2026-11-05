@@ -25,11 +25,11 @@ const ROOT = path.join(__dirname, '..');
 const arg = (k, d) => { const v = (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1]; return v === undefined || v === '' ? d : v; };
 const DATA = arg('data', path.join(ROOT, 'docker-data', 'volumes/crypto-analyst_n8n_storage/_data'));
 const HIST = arg('history', path.join(DATA, 'books_history.jsonl'));
-const WEV = arg('wallevents', path.join(DATA, 'wall_events.jsonl'));
 const WHEV = arg('whaleevents', path.join(DATA, 'whale_events.jsonl'));
 const WANT = (arg('symbol', '') || '').toUpperCase() || null;
 const WINDOW = +arg('window', 7200) * 1000;          // event window, sec
 const MIN_USD = +arg('min-usd', 2e6);                 // event-model wall floor
+const MIN_DIST = +arg('min-dist', 0.3);                // %: top-of-book noise floor (wall_scan.js convention)
 const BAND = +arg('band', 0.6);                       // %-points: same wall identity
 const TOUCH = +arg('touch', 0.35);                    // %: price near wall = touched
 const DROP_PCT = +arg('drop-pct', 35);                // VOLUME_DROP: side walls shrink
@@ -58,6 +58,7 @@ const loadJsonl = f => {
 // gone), pull (vanished untouched). Plus appear/reload/volume/flip events.
 function deriveEvents(recs, o = {}) {
   const minUsd = o.minUsd ?? MIN_USD, band = o.band ?? BAND, touch = o.touch ?? TOUCH;
+  const minDist = o.minDist ?? MIN_DIST;
   const dropPct = o.dropPct ?? DROP_PCT, reloadMs = (o.reloadH ?? RELOAD_H) * 3600e3;
   const flo = o.flipLo ?? FLIP_LO, fhi = o.flipHi ?? FLIP_HI;
   const ev = [];
@@ -68,9 +69,9 @@ function deriveEvents(recs, o = {}) {
   for (const r of recs) {
     const a = r.agg || {}, mid = a.mid;
     if (!mid) { prev = null; continue; }
-    const walls = [...(a.wallsA || []).map(w => ({ side: 'A', px: absPx(mid, w[0]), usd: w[1] })),
-                   ...(a.wallsB || []).map(w => ({ side: 'B', px: absPx(mid, w[0]), usd: w[1] }))]
-      .filter(w => w.usd >= minUsd);
+    const walls = [...(a.wallsA || []).map(w => ({ side: 'A', px: absPx(mid, w[0]), usd: w[1], d: w[0] })),
+                   ...(a.wallsB || []).map(w => ({ side: 'B', px: absPx(mid, w[0]), usd: w[1], d: w[0] }))]
+      .filter(w => w.usd >= minUsd && Math.abs(w.d) >= minDist);
     if (prev) {
       const t1 = r.ts, m0 = prev.mid, m1 = mid;
       const lo = Math.min(m0, m1), hi = Math.max(m0, m1);
@@ -112,8 +113,8 @@ function deriveEvents(recs, o = {}) {
       }
     }
     prev = { ts: r.ts, mid, agg: a, walls };
+    if (recentDead.length > 1000) recentDead.splice(0, recentDead.length - 1000);
   }
-  while (recentDead.length > 1000) recentDead.shift();
   return ev;
 }
 
@@ -132,12 +133,14 @@ function liqMap(whales, mids, refMid, o = {}) {
   };
   const pools = new Map();
   for (const e of whales) {
-    if (e.coin !== coin || !['open', 'grow'].includes(e.type) || !e.sz || !e.usd) continue;
+    if (e.coin !== coin || !['open', 'grow', 'close'].includes(e.type) || !e.usd) continue;
     const e0 = at(e.ts); if (!e0) continue;
+    const sign = e.type === 'close' ? -1 : 1;
+    const sz = e.sz || (e.dir === 'short' ? -1 : 1); // closes may lack sz - infer long
     for (const [L, w] of lev) {
-      const lp = e.sz > 0 ? e0 * (1 - 1 / L) : e0 * (1 + 1 / L);
+      const lp = sz > 0 ? e0 * (1 - 1 / L) : e0 * (1 + 1 / L);
       const b = Math.round(lp / refMid / (bucket / 100)) * (bucket / 100) * refMid;
-      pools.set(b, (pools.get(b) || 0) + Math.abs(e.usd) * w);
+      pools.set(b, (pools.get(b) || 0) + sign * Math.abs(e.usd) * w);
     }
   }
   const below = [], above = [];
@@ -159,7 +162,9 @@ function classify(mid, pools, evs, wallsAgg, o = {}) {
   const longMagnet = pools.below.find(p => p.usd >= 20e6 && p.px >= mid * (1 - 0.10)) || pools.below[0] || null;
   const shortMagnet = pools.above.find(p => p.usd >= 20e6 && p.px <= mid * (1 + 0.20)) || pools.above[0] || null;
   const nearLong = longMagnet && Math.abs(mid - longMagnet.px) / mid * 100 <= zone;
-  const askLid = (wallsAgg.wallsA || []).some(w => w[0] <= lid && w[1] >= 20e6);
+  const lidWall = (wallsAgg.wallsA || []).filter(w => w[0] <= lid && w[1] >= 20e6)
+    .sort((a, b) => b[1] - a[1])[0] || null;
+  const askLid = !!lidWall;
   const stats = { bBrk, bPl, bHd, aBrk, aPl, aHd, reload, flips,
     bidUsd: +((wallsAgg.wallsB || []).reduce((s, w) => s + w[1], 0) / 1e6).toFixed(1),
     askUsd: +((wallsAgg.wallsA || []).reduce((s, w) => s + w[1], 0) / 1e6).toFixed(1) };
@@ -183,7 +188,7 @@ function classify(mid, pools, evs, wallsAgg, o = {}) {
     signals.push({ side: 'long', px: mid, setup: 'liq-magnet + B hold + bid stack', target: shortMagnet && shortMagnet.px, invalid: +(longMagnet.px * 0.995).toPrecision(8) });
   }
   if (askLid && bBrk >= 2 && bHd === 0) {
-    signals.push({ side: 'short', px: mid, setup: 'ask lid + B break series', target: longMagnet && longMagnet.px, invalid: +((wallsAgg.wallsA[0] ? mid * (1 + wallsAgg.wallsA[0][0] / 100) : mid * 1.01) * 1.005).toPrecision(8) });
+    signals.push({ side: 'short', px: mid, setup: 'ask lid + B break series', target: longMagnet && longMagnet.px, invalid: +((lidWall ? mid * (1 + lidWall[0] / 100) : mid * 1.01) * 1.005).toPrecision(8) });
   }
   return { state, dir, target: target && target.px, longMagnet, shortMagnet, stats, reasons, signals };
 }
@@ -192,8 +197,9 @@ function build(rows, whales, sym, now) {
   const recs = rows.filter(r => r.sym === sym && r.agg && r.agg.mid).sort((a, b) => a.ts - b.ts);
   if (recs.length < 5) return null;
   const last = recs[recs.length - 1];
-  const wRecs = recs.filter(r => r.ts >= now - WINDOW - 86400e3); // chains need lookback
-  const evs = deriveEvents(wRecs).filter(e => e.ts >= now - WINDOW);
+  const anchor = Math.min(now, last.ts); // historical data: window anchors to last snapshot
+  const wRecs = recs.filter(r => r.ts >= anchor - WINDOW - 86400e3); // chains need lookback
+  const evs = deriveEvents(wRecs).filter(e => e.ts >= anchor - WINDOW);
   const pools = liqMap(whales.filter(w => w.coin === SYM_COIN(sym)),
     recs.map(r => ({ ts: r.ts, mid: r.agg.mid })), last.agg.mid, { coin: SYM_COIN(sym) });
   const sc = classify(last.agg.mid, pools, evs, last.agg);
@@ -206,7 +212,6 @@ function main() {
   const once = process.argv.includes('--once') || !process.argv.includes('--watch');
   const OUT = arg('out', null);
   const rows = loadJsonl(HIST), whales = loadJsonl(WHEV);
-  void loadJsonl(WEV); // wall tracker events = cross-check source, kept for parity
   const syms = WANT ? [WANT] : [...new Set(rows.map(r => r.sym))].filter(s => /USDT$/.test(s));
   const tick = () => {
     const now = Date.now(), out = [];

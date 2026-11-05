@@ -102,6 +102,42 @@ test('classify: squeeze on bid hold + reload, long signal at magnet', () => {
   assert.ok(r.signals.some(s => s.side === 'long'), 'long signal missing');
 });
 
+test('classify: base_up on lifted ask ceiling, short signal under lid', () => {
+  const pools = { below: [{ px: 73000, usd: 200e6 }], above: [{ px: 80000, usd: 500e6 }] };
+  // ceiling lifts: ask walls pulled/broken, bid side intact
+  const evs = [
+    { type: 'WALL_PULL', side: 'A' }, { type: 'WALL_PULL', side: 'A' },
+    { type: 'WALL_BREAK', side: 'A' }, { type: 'WALL_PULL', side: 'A' },
+  ];
+  const walls = { wallsA: [[0.8, 5e6]], wallsB: [[-0.5, 40e6]] };
+  const r = classify(76000, pools, evs, walls);
+  assert.strictEqual(r.state, 'base_up');
+  assert.strictEqual(r.dir, 1);
+  assert.strictEqual(r.target, 80000);
+  // short signal: persistent ask lid + B break series, no holds
+  const evs2 = [
+    { type: 'WALL_BREAK', side: 'B' }, { type: 'WALL_BREAK', side: 'B' },
+  ];
+  const walls2 = { wallsA: [[0.5, 60e6]], wallsB: [[-0.5, 8e6]] };
+  const r2 = classify(76000, pools, evs2, walls2);
+  const sig = r2.signals.find(s => s.side === 'short');
+  assert.ok(sig, 'short signal missing under ask lid');
+  assert.ok(sig.invalid > 76000, 'invalid must sit above price: ' + sig.invalid);
+});
+
+test('deriveEvents: wall touched then removed = WALL_HOLD', () => {
+  const t0 = 1e9;
+  const recs = [
+    snap(t0, 100000, [[-1, 5 * M]], []),          // bid wall at ~99k
+    snap(t0 + MIN, 99300, [[-1, 5 * M]], []),     // mid approaches (0.3%)
+    snap(t0 + 2 * MIN, 99300, [], []),            // wall gone after touch -> HOLD
+  ];
+  const ev = deriveEvents(recs, { minUsd: 1e6 });
+  const hold = ev.find(e => e.type === 'WALL_HOLD');
+  assert.ok(hold, 'hold missing: ' + JSON.stringify(ev.map(e => e.type)));
+  assert.strictEqual(hold.side, 'B');
+});
+
 test('classify: cascade when inside magnet zone and breaks dominate', () => {
   const pools = {
     below: [{ px: 73000, usd: 200e6 }, { px: 69000, usd: 80e6 }],
