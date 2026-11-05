@@ -105,10 +105,12 @@ Myth-Busting.)
 
 - Issue #47: optimal volatility entry - hybrid order-book walls
   + reconstructed liquidation map + event model.
-- Issue #3: persistent-wall liquidity zones (ready for
-  preliminary validation, 11k+ outcomes).
-- Issue #22: whale insider-short tracking (weak replication so
-  far; watching for more flagged spikes).
+- Issue #3 (Re-entry at next liquidity zone): persistent-wall
+  liquidity zones - ready for preliminary validation, 11k+
+  outcomes.
+- Issue #22 (Whale funding-rate split): whale directional
+  conviction / insider-short tracking - weak replication so
+  far; watching for more flagged spikes.
 - Donchian forward test: accumulating virtual trades.
 - Known gaps: automatic signal->outcome joiner, minute-scale
   wall cadence, regime diversity (all recent tags are neutral).
@@ -117,4 +119,5 @@ Myth-Busting.)
 
 - Release line v4.8.x; required checks on main: lint +
   unit-tests; CODEOWNERS review gating.
-- No open production PRs; earlier research PRs parked.
+- No open production PRs; earlier research PRs #10-14 remain
+  open but parked.
