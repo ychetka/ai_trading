@@ -72,3 +72,6 @@ Info-forward running since 2026-10-21. Collecting ~100-trade forward
 sample before any go-live discussion. Hypotheses under active test:
 Donchian edge reproduction, order-book wall ↔ failed-breakout
 correlation (multi-venue snapshots at every entry).
+
+Working with the lab (free hypothesis backlog, paid validation):
+see `WORK_WITH_ME.md`.

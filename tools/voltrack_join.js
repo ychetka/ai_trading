@@ -100,7 +100,9 @@ function summarize(closed) {
 
 function main() {
   if (!IN) { console.error('usage: --in=<voltrack_state.jsonl> [--out=outcomes.jsonl] [--expiry-h=4]'); process.exit(2); }
-  const rows = loadJsonl(IN);
+  // merge the rotated tail too: voltrack.js rotates --out to <file>.1,
+  // and positions opened just before rotation live there, not in IN
+  const rows = [...loadJsonl(IN + '.1'), ...loadJsonl(IN)];
   const { closed, open } = resolve(rows);
   if (OUT) {
     const seen = new Set(loadJsonl(OUT).map(c => `${c.sym}:${c.side}:${c.entryTs}`));
