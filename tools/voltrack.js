@@ -309,8 +309,10 @@ function main() {
     return baseSyms;
   };
   if (live) {
+    const seed0 = Date.now() - 48 * 3600e3;
     for (const s of uniSyms()) {
-      liveRows.set(s, seedBuffer(HIST, s, Date.now()));
+      // rows was just loaded - reuse it instead of re-reading per symbol
+      liveRows.set(s, rows.filter(r => r.sym === s && r.ts >= seed0));
     }
   }
   const MAX_MB = +arg('max-mb', 256);

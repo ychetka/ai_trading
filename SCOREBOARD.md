@@ -21,8 +21,8 @@ friction assumptions attached. Past R is not a promise of future R.
 | Range/structure boundary touch (1H/4H) | mean-reversion | REJECTED | n=6633; -0.101; 52-53% (market drift baseline); 36-42% of touches break the boundary | issue #6 comment 2026-11-06 |
 | Pump detector - fade variant | mean-reversion | UNTESTABLE | n=0; spot/perp divergence + OI filters produce zero qualifying samples over 6m - spec needs threshold relaxation decision | issue #5 comment 2026-11-06 |
 | Volatility entry: walls + reconstructed liq map | order-book | ACCUMULATING | forward log live since 2026-11-07 (target n>50) | issue #47 / PR #50, #54 |
-| BTC-dump relative-strength screener | cross-sectional | DATA-GATED | 98% of regime tags are neutral - no bear windows recorded yet | issue #8 |
-| Paying-whale funding split as conviction signal | on-chain/whale | UNDERPOWERED | sample too small + all-neutral regimes | issue #22 |
+| BTC-dump relative-strength screener | cross-sectional | DATA-GATED | 98% of regime tags are neutral - no bear windows recorded yet; insufficient | issue #8 |
+| Paying-whale funding split as conviction signal | on-chain/whale | UNDERPOWERED | sample too small + all-neutral regimes; ~102 unique pairs; insider-short count 1:3 - deprioritized | issue #22 |
 
 ## Reading this table
 

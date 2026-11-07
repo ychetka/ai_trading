@@ -58,8 +58,8 @@ function render(manifest) {
     // keep negative evidence visible: numeric metrics join the why-column
     const extra = ['mean4h_pct', 'mean2h_pct', 'directional', 'breakout_rate', 'verdict', 'note']
       .filter(k => m[k] != null).map(k => m[k]);
-    const base = typeof m.n === 'number' ? `n=${m.n}` : (m.n ?? '?');
-    const why = m.blocker || [base, ...extra].join('; ');
+    const base = typeof m.n === 'number' ? `n=${m.n}` : (m.n ?? null);
+    const why = [m.blocker, base, ...extra].filter(Boolean).join('; ') || '?';
     L.push(`| ${s.name} | ${s.family} | ${STATUS_LABEL[s.status] || s.status} | ${why} | ${s.ref} |`);
   }
   L.push('');
