@@ -23,6 +23,9 @@
 //   webhook (--book-url, default http://localhost:5678/webhook/book) instead
 //   of re-reading books_history.jsonl - this is what gives minute-cadence
 //   walls. --raw appends each fetched snapshot as its own JSONL dataset.
+// --universe: symbol list tracks the Donchian universe (donchian_state.json
+//   in the n8n data dir), unioned with --symbols, re-read every tick so
+//   monthly re-ranks propagate without a service restart.
 // Exit: --once prints {ts,sym,mid,state,dir,regime,pools,stats,signals,events[]}.
 
 const fs = require('fs'), path = require('path');
@@ -31,6 +34,7 @@ const arg = (k, d) => { const v = (process.argv.find(a => a.startsWith(`--${k}=`
 const DATA = arg('data', path.join(ROOT, 'docker-data', 'volumes/crypto-analyst_n8n_storage/_data'));
 const HIST = arg('history', path.join(DATA, 'books_history.jsonl'));
 const WHEV = arg('whaleevents', path.join(DATA, 'whale_events.jsonl'));
+const DONCHIAN_STATE = arg('universe-file', path.join(DATA, 'donchian_state.json'));
 const WANT = (arg('symbol', '') || '').toUpperCase() || null;
 const WINDOW = +arg('window', 7200) * 1000;          // event window, sec
 const MIN_USD = +arg('min-usd', 2e6);                 // event-model wall floor
@@ -272,11 +276,19 @@ function main() {
   // event chains need lookback); each tick appends the fetched snapshot
   const liveRows = new Map();
   const seedFrom = Date.now() - 48 * 3600e3;
-  const syms = WANT ? [WANT]
+  const baseSyms = WANT ? [WANT]
     : live ? (arg('symbols', 'BTCUSDT,ETHUSDT,SOLUSDT')).split(',').map(s => s.trim().toUpperCase())
     : [...new Set(rows.map(r => r.sym))].filter(s => /USDT$/.test(s));
+  const useUniverse = process.argv.includes('--universe');
+  const uniSyms = () => {
+    if (!useUniverse) return baseSyms;
+    try {
+      const u = JSON.parse(fs.readFileSync(DONCHIAN_STATE, 'utf8')).universe || [];
+      return [...new Set([...baseSyms, ...u.map(s => String(s).toUpperCase())])];
+    } catch { return baseSyms; }
+  };
   if (live) {
-    for (const s of syms) {
+    for (const s of uniSyms()) {
       liveRows.set(s, rows.filter(r => r.sym === s && r.ts >= seedFrom));
     }
   }
@@ -287,11 +299,13 @@ function main() {
     ticking = true;
     try {
       const now = Date.now(), out = [];
-      for (const s of syms) {
+      const tickSyms = live ? uniSyms() : baseSyms;
+      for (const s of tickSyms) {
         let src = rows;
         if (live) {
           const snap = await fetchSnap(BOOK_URL, s);
           if (!snap) { console.warn(`${new Date(now).toISOString()} fetch failed for ${s} - tick skipped`); continue; }
+          if (!liveRows.has(s)) liveRows.set(s, rows.filter(r => r.sym === s && r.ts >= seedFrom));
           const buf = liveRows.get(s);
           buf.push(snap);
           while (buf.length && buf[0].ts < now - 48 * 3600e3) buf.shift();

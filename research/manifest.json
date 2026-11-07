@@ -1,0 +1,157 @@
+{
+  "generated_from": "Validated backtest/forward results. Every record cites its evidence (issue/PR/doc). Numbers are historical verdicts - not promises. Update the manifest when a hypothesis changes state; run `node tools/scoreboard.js` to regenerate SCOREBOARD.md.",
+  "strategies": [
+    {
+      "id": "donchian_breakout",
+      "name": "Donchian breakout from squeeze (v4.5.1)",
+      "family": "trend",
+      "status": "active-forward",
+      "metrics": {
+        "n": "backtest ~120 trades/yr",
+        "meanR": 0.68,
+        "maxDD_R": 32,
+        "horizon": "1H signals, multi-day holds",
+        "regime": "mixed (6y Bybit history, 112 symbols)",
+        "fees": "full frictions: 5.5bps fee + max(10bps, 3%*ATR) slippage"
+      },
+      "evidence": "portfolio backtest with OOS split, see STRATEGY.md; live info-forward since 2026-10-21",
+      "ref": "workflow 66fb7895-f0b3-47"
+    },
+    {
+      "id": "smc_mean_reversion",
+      "name": "SMC mean reversion (equal lows + OB/POC)",
+      "family": "mean-reversion",
+      "status": "rejected",
+      "metrics": {
+        "n": "~37000 signals",
+        "meanR": -0.16,
+        "horizon": "intraday",
+        "regime": "mixed backtest",
+        "fees": "included"
+      },
+      "evidence": "deep-history backtests, archived code in archive/",
+      "ref": "STRATEGY.md research arc"
+    },
+    {
+      "id": "zscore_mr_5m",
+      "name": "5m z-score mean reversion",
+      "family": "mean-reversion",
+      "status": "rejected",
+      "metrics": {
+        "n": 2593,
+        "meanR": -1.06,
+        "winPct": 16,
+        "horizon": "5m bars",
+        "regime": "6m window, 8 symbols",
+        "fees": "included"
+      },
+      "evidence": "rejected by backtest PR",
+      "ref": "issue #9 / PR #11"
+    },
+    {
+      "id": "wall_hold_zones",
+      "name": "Persistent order-book walls as liquidity zones",
+      "family": "order-book",
+      "status": "no-edge",
+      "metrics": {
+        "n": 12390,
+        "meanR": null,
+        "mean4h_pct": -0.147,
+        "directional": "49.5/50.5% on B-holds (coin flip)",
+        "horizon": "15m-4h forward",
+        "regime": "mostly neutral",
+        "fees": "A-hold fade signal exists but dies on fees"
+      },
+      "evidence": "wall-lifecycle forward outcome analysis on 13-venue snapshots",
+      "ref": "issue #3 comment 2026-11-05"
+    },
+    {
+      "id": "range_boundary_touch",
+      "name": "Range/structure boundary touch (1H/4H)",
+      "family": "mean-reversion",
+      "status": "rejected",
+      "metrics": {
+        "n": 6633,
+        "mean2h_pct": -0.101,
+        "directional": "52-53% (market drift baseline)",
+        "breakout_rate": "36-42% of touches break the boundary",
+        "horizon": "2h forward",
+        "regime": "mostly neutral",
+        "fees": "not viable vs drift"
+      },
+      "evidence": "boundary-touch labeling pass on 15-min mid feed, 12 symbols",
+      "ref": "issue #6 comment 2026-11-06"
+    },
+    {
+      "id": "pump_ride",
+      "name": "Pump detector - ride variant",
+      "family": "momentum",
+      "status": "marginal",
+      "metrics": {
+        "n": 947,
+        "meanR": 0.093,
+        "medianR": -0.731,
+        "winPct": 28,
+        "p5_R": -1,
+        "p95_R": 3.85,
+        "horizon": "post-pump forward",
+        "regime": "6m, 8 symbols, mostly neutral",
+        "fees": "positive mean survives only via rare runners - dies on costs"
+      },
+      "evidence": "phase-2 labeling pass on klines5m with OI+spot filters",
+      "ref": "issue #5 comment 2026-11-06"
+    },
+    {
+      "id": "pump_fade",
+      "name": "Pump detector - fade variant",
+      "family": "mean-reversion",
+      "status": "untestable",
+      "metrics": {
+        "n": 0,
+        "note": "spot/perp divergence + OI filters produce zero qualifying samples over 6m - spec needs threshold relaxation decision"
+      },
+      "evidence": "same phase-2 pass as pump_ride",
+      "ref": "issue #5 comment 2026-11-06"
+    },
+    {
+      "id": "voltrack_hybrid_entry",
+      "name": "Volatility entry: walls + reconstructed liq map",
+      "family": "order-book",
+      "status": "accumulating",
+      "metrics": {
+        "n": "forward log live since 2026-11-07 (target n>50)",
+        "meanR": null,
+        "horizon": "4h virtual positions",
+        "regime": "per-row regime tag (24h drift rule)",
+        "fees": "TBD at validation"
+      },
+      "evidence": "tools/voltrack.js + tools/voltrack_join.js; minute-cadence collector systemd/voltrack-watch.service",
+      "ref": "issue #47 / PR #50, #54"
+    },
+    {
+      "id": "btc_rel_strength",
+      "name": "BTC-dump relative-strength screener",
+      "family": "cross-sectional",
+      "status": "data-gated",
+      "metrics": {
+        "n": "insufficient",
+        "blocker": "98% of regime tags are neutral - no bear windows recorded yet"
+      },
+      "evidence": "readiness sweep",
+      "ref": "issue #8"
+    },
+    {
+      "id": "whale_funding_split",
+      "name": "Paying-whale funding split as conviction signal",
+      "family": "on-chain/whale",
+      "status": "underpowered",
+      "metrics": {
+        "n": "~102 unique pairs",
+        "blocker": "sample too small + all-neutral regimes",
+        "verdict": "insider-short count 1:3 - deprioritized"
+      },
+      "evidence": "whale/funding join digest",
+      "ref": "issue #22"
+    }
+  ]
+}
