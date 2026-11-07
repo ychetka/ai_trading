@@ -17,8 +17,13 @@
 //
 //   node tools/voltrack.js --once --symbol=BTCUSDT --window=7200
 //   node tools/voltrack.js --watch --interval=180 --out=.../voltrack_state.jsonl
+//   node tools/voltrack.js --watch --live --interval=60 --raw=.../books_minute.jsonl
 //
-// Exit: --once prints {ts,sym,mid,state,dir,pools,stats,signals,events[]}.
+// --live: each tick fetches a fresh snapshot from the books-aggregator
+//   webhook (--book-url, default http://localhost:5678/webhook/book) instead
+//   of re-reading books_history.jsonl - this is what gives minute-cadence
+//   walls. --raw appends each fetched snapshot as its own JSONL dataset.
+// Exit: --once prints {ts,sym,mid,state,dir,regime,pools,stats,signals,events[]}.
 
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
@@ -209,6 +214,18 @@ function classify(mid, pools, evs, wallsAgg, o = {}) {
   return { state, dir, target: target && target.px, longMagnet, shortMagnet, stats, reasons, signals };
 }
 
+// ---------- regime tag ------------------------------------------------------
+// Honest deterministic tag from our own mids: 24h drift vs thresholds.
+// 'bull'/'bear'/'neutral' - same buckets the readiness matrix uses.
+function regimeOf(recs, anchor, o = {}) {
+  const h = (o.hours ?? 24) * 3600e3, thr = o.pct ?? 1.5;
+  const last = recs[recs.length - 1];
+  const ref = [...recs].reverse().find(r => r.ts <= anchor - h);
+  if (!last || !ref) return 'neutral';
+  const chg = (last.agg.mid - ref.agg.mid) / ref.agg.mid * 100;
+  return chg >= thr ? 'bull' : chg <= -thr ? 'bear' : 'neutral';
+}
+
 function build(rows, whales, sym, now) {
   const recs = rows.filter(r => r.sym === sym && r.agg && r.agg.mid).sort((a, b) => a.ts - b.ts);
   if (recs.length < 5) return null;
@@ -219,20 +236,55 @@ function build(rows, whales, sym, now) {
   const pools = liqMap(whales.filter(w => w.coin === SYM_COIN(sym)),
     recs.map(r => ({ ts: r.ts, mid: r.agg.mid })), last.agg.mid, { coin: SYM_COIN(sym) });
   const sc = classify(last.agg.mid, pools, evs, last.agg);
-  return { ts: now, sym, mid: +last.agg.mid.toFixed(2), imb: last.agg.imb, ...sc,
-    events: evs.slice(-50) };
+  return { ts: now, sym, mid: +last.agg.mid.toFixed(2), imb: last.agg.imb,
+    regime: regimeOf(recs, anchor), ...sc, events: evs.slice(-50) };
 }
 
 // ---------- CLI -------------------------------------------------------------
+async function fetchSnap(bookUrl, sym, timeoutMs = 8000) {
+  const ctl = new AbortController();
+  const to = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    const r = await fetch(`${bookUrl}?symbol=${encodeURIComponent(sym)}`, { signal: ctl.signal });
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!j || !j.agg || !j.agg.mid) return null;
+    return { ts: j.ts || Date.now(), sym: j.sym || sym, agg: j.agg };
+  } catch { return null; } finally { clearTimeout(to); }
+}
+
 function main() {
   const once = process.argv.includes('--once') || !process.argv.includes('--watch');
-  const OUT = arg('out', null);
+  const live = process.argv.includes('--live');
+  const OUT = arg('out', null), RAW = arg('raw', null);
+  const BOOK_URL = arg('book-url', 'http://localhost:5678/webhook/book');
   const rows = loadJsonl(HIST), whales = loadJsonl(WHEV);
-  const syms = WANT ? [WANT] : [...new Set(rows.map(r => r.sym))].filter(s => /USDT$/.test(s));
-  const tick = () => {
+  // --live: per-symbol rolling buffers seeded from history tail (regime +
+  // event chains need lookback); each tick appends the fetched snapshot
+  const liveRows = new Map();
+  const seedFrom = Date.now() - 48 * 3600e3;
+  const syms = WANT ? [WANT]
+    : live ? (arg('symbols', 'BTCUSDT,ETHUSDT,SOLUSDT')).split(',')
+    : [...new Set(rows.map(r => r.sym))].filter(s => /USDT$/.test(s));
+  if (live) {
+    for (const s of syms) {
+      liveRows.set(s, rows.filter(r => r.sym === s && r.ts >= seedFrom));
+    }
+  }
+  const tick = async () => {
     const now = Date.now(), out = [];
     for (const s of syms) {
-      const r = build(rows, whales, s, now);
+      let src = rows;
+      if (live) {
+        const snap = await fetchSnap(BOOK_URL, s);
+        if (!snap) continue;
+        const buf = liveRows.get(s);
+        buf.push(snap);
+        while (buf.length && buf[0].ts < now - 48 * 3600e3) buf.shift();
+        src = buf;
+        if (RAW) fs.appendFileSync(RAW, JSON.stringify(snap) + '\n');
+      }
+      const r = build(src, whales, s, now);
       if (r) out.push(r);
     }
     if (OUT) fs.appendFileSync(OUT, out.map(r => JSON.stringify(r)).join('\n') + (out.length ? '\n' : ''));
@@ -243,4 +295,4 @@ function main() {
   if (!once) setInterval(tick, +arg('interval', 180) * 1000);
 }
 if (require.main === module) main();
-module.exports = { deriveEvents, liqMap, classify, build, loadJsonl };
+module.exports = { deriveEvents, liqMap, classify, build, loadJsonl, regimeOf, fetchSnap };
