@@ -23,6 +23,9 @@
 //   webhook (--book-url, default http://localhost:5678/webhook/book) instead
 //   of re-reading books_history.jsonl - this is what gives minute-cadence
 //   walls. --raw appends each fetched snapshot as its own JSONL dataset.
+// --universe: symbol list tracks the Donchian universe (donchian_state.json
+//   in the n8n data dir), unioned with --symbols, re-read every tick so
+//   monthly re-ranks propagate without a service restart.
 // Exit: --once prints {ts,sym,mid,state,dir,regime,pools,stats,signals,events[]}.
 
 const fs = require('fs'), path = require('path');
@@ -31,6 +34,7 @@ const arg = (k, d) => { const v = (process.argv.find(a => a.startsWith(`--${k}=`
 const DATA = arg('data', path.join(ROOT, 'docker-data', 'volumes/crypto-analyst_n8n_storage/_data'));
 const HIST = arg('history', path.join(DATA, 'books_history.jsonl'));
 const WHEV = arg('whaleevents', path.join(DATA, 'whale_events.jsonl'));
+const DONCHIAN_STATE = arg('universe-file', path.join(DATA, 'donchian_state.json'));
 const WANT = (arg('symbol', '') || '').toUpperCase() || null;
 const WINDOW = +arg('window', 7200) * 1000;          // event window, sec
 const MIN_USD = +arg('min-usd', 2e6);                 // event-model wall floor
@@ -262,6 +266,23 @@ function appendRot(file, text, maxMb) {
   fs.appendFileSync(file, text);
 }
 
+// symbol list = --symbols union the Donchian universe (re-read each tick so
+// monthly re-ranks propagate). On any read failure falls back to baseSyms.
+function uniSymsOf(baseSyms, universeFile) {
+  try {
+    const u = JSON.parse(fs.readFileSync(universeFile, 'utf8')).universe || [];
+    return [...new Set([...baseSyms, ...u.map(s => String(s).toUpperCase())])];
+  } catch { return null; }
+}
+
+// seed a live buffer for a symbol: re-read the history file so symbols that
+// appear after process start still get the 48h tail (a stale in-memory
+// snapshot would be evicted by the buffer trim at once)
+function seedBuffer(histFile, sym, now) {
+  const rows = loadJsonl(histFile);
+  return rows.filter(r => r.sym === sym && r.ts >= now - 48 * 3600e3);
+}
+
 function main() {
   const once = process.argv.includes('--once') || !process.argv.includes('--watch');
   const live = process.argv.includes('--live');
@@ -271,13 +292,27 @@ function main() {
   // --live: per-symbol rolling buffers seeded from history tail (regime +
   // event chains need lookback); each tick appends the fetched snapshot
   const liveRows = new Map();
-  const seedFrom = Date.now() - 48 * 3600e3;
-  const syms = WANT ? [WANT]
+  const baseSyms = WANT ? [WANT]
     : live ? (arg('symbols', 'BTCUSDT,ETHUSDT,SOLUSDT')).split(',').map(s => s.trim().toUpperCase())
     : [...new Set(rows.map(r => r.sym))].filter(s => /USDT$/.test(s));
+  const useUniverse = process.argv.includes('--universe');
+  let uniWarnAt = 0;
+  const uniSyms = () => {
+    if (!useUniverse) return baseSyms;
+    const u = uniSymsOf(baseSyms, DONCHIAN_STATE);
+    if (u) return u;
+    const now = Date.now();
+    if (now - uniWarnAt > 3600e3) {
+      console.warn(`${new Date(now).toISOString()} universe read failed - falling back to --symbols`);
+      uniWarnAt = now;
+    }
+    return baseSyms;
+  };
   if (live) {
-    for (const s of syms) {
-      liveRows.set(s, rows.filter(r => r.sym === s && r.ts >= seedFrom));
+    const seed0 = Date.now() - 48 * 3600e3;
+    for (const s of uniSyms()) {
+      // rows was just loaded - reuse it instead of re-reading per symbol
+      liveRows.set(s, rows.filter(r => r.sym === s && r.ts >= seed0));
     }
   }
   const MAX_MB = +arg('max-mb', 256);
@@ -287,11 +322,13 @@ function main() {
     ticking = true;
     try {
       const now = Date.now(), out = [];
-      for (const s of syms) {
+      const tickSyms = live ? uniSyms() : baseSyms;
+      for (const s of tickSyms) {
         let src = rows;
         if (live) {
           const snap = await fetchSnap(BOOK_URL, s);
           if (!snap) { console.warn(`${new Date(now).toISOString()} fetch failed for ${s} - tick skipped`); continue; }
+          if (!liveRows.has(s)) liveRows.set(s, seedBuffer(HIST, s, now));
           const buf = liveRows.get(s);
           buf.push(snap);
           while (buf.length && buf[0].ts < now - 48 * 3600e3) buf.shift();
@@ -310,4 +347,4 @@ function main() {
   if (!once) setInterval(tick, +arg('interval', 180) * 1000);
 }
 if (require.main === module) main();
-module.exports = { deriveEvents, liqMap, classify, build, loadJsonl, regimeOf, fetchSnap };
+module.exports = { deriveEvents, liqMap, classify, build, loadJsonl, regimeOf, fetchSnap, uniSymsOf, seedBuffer };
