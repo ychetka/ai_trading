@@ -23,5 +23,9 @@ exec unshare -Ur --propagation unchanged bash -c '
   INNER=$(cat "$D/inner.pid")
   "$D/slirp4netns" --configure --mtu=65520 "$INNER" tap0 > "$D/slirp.log" 2>&1 &
   python3 "$D/port_fwd.py" 5678 5678 "$INNER" >> "$D/fwd.log" 2>&1 &
+  # shared-person TG webhook: opticode.su:8443 (MikroTik DNAT) -> inner :8443
+  python3 "$D/port_fwd.py" 8443 8443 "$INNER" >> "$D/fwd.log" 2>&1 &
+  # ACME http-01 renewal path: MikroTik dstnat :80 -> host :8080 -> inner :80
+  python3 "$D/port_fwd.py" 8080 80 "$INNER" >> "$D/fwd.log" 2>&1 &
   wait
 '
