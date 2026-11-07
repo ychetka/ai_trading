@@ -19,7 +19,7 @@
 // in --out are skipped, so the joiner is safe to run on a timer.
 //
 //   node tools/voltrack_join.js --in=voltrack_state.jsonl --out=voltrack_outcomes.jsonl
-//   node tools/voltrack_join.js --in=... --out=... --expiry-h=4 --summary
+//   node tools/voltrack_join.js --in=... --out=... --expiry-h=4
 //
 // Output row: {sym,side,setup,state,regime,entryTs,entry,target,invalid,
 //   exitTs,exit,reason,R,mae,mfe,bars}.
@@ -65,6 +65,7 @@ function resolve(rows, o = {}) {
     }
     // 2) open new positions from this tick's signals
     for (const s of r.signals || []) {
+      if (s.side !== 'long' && s.side !== 'short') continue;
       const key = `${r.sym}:${s.side}`;
       if (open.has(key)) continue;
       const dir = s.side === 'long' ? 1 : -1;

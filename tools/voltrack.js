@@ -221,7 +221,7 @@ function regimeOf(recs, anchor, o = {}) {
   const h = (o.hours ?? 24) * 3600e3, thr = o.pct ?? 1.5;
   const last = recs[recs.length - 1];
   const ref = [...recs].reverse().find(r => r.ts <= anchor - h);
-  if (!last || !ref) return 'neutral';
+  if (!last || !ref || ref.ts < anchor - 2 * h) return 'neutral';
   const chg = (last.agg.mid - ref.agg.mid) / ref.agg.mid * 100;
   return chg >= thr ? 'bull' : chg <= -thr ? 'bear' : 'neutral';
 }
@@ -253,6 +253,15 @@ async function fetchSnap(bookUrl, sym, timeoutMs = 8000) {
   } catch { return null; } finally { clearTimeout(to); }
 }
 
+// append with bounded size: past --*-max-mb the file is rotated to <name>.1
+// (single backup; mirrors the books_history 30d-rotation convention)
+function appendRot(file, text, maxMb) {
+  try {
+    if (fs.statSync(file).size > maxMb * 1e6) fs.renameSync(file, file + '.1');
+  } catch {}
+  fs.appendFileSync(file, text);
+}
+
 function main() {
   const once = process.argv.includes('--once') || !process.argv.includes('--watch');
   const live = process.argv.includes('--live');
@@ -264,32 +273,38 @@ function main() {
   const liveRows = new Map();
   const seedFrom = Date.now() - 48 * 3600e3;
   const syms = WANT ? [WANT]
-    : live ? (arg('symbols', 'BTCUSDT,ETHUSDT,SOLUSDT')).split(',')
+    : live ? (arg('symbols', 'BTCUSDT,ETHUSDT,SOLUSDT')).split(',').map(s => s.trim().toUpperCase())
     : [...new Set(rows.map(r => r.sym))].filter(s => /USDT$/.test(s));
   if (live) {
     for (const s of syms) {
       liveRows.set(s, rows.filter(r => r.sym === s && r.ts >= seedFrom));
     }
   }
+  const MAX_MB = +arg('max-mb', 256);
+  let ticking = false;
   const tick = async () => {
-    const now = Date.now(), out = [];
-    for (const s of syms) {
-      let src = rows;
-      if (live) {
-        const snap = await fetchSnap(BOOK_URL, s);
-        if (!snap) continue;
-        const buf = liveRows.get(s);
-        buf.push(snap);
-        while (buf.length && buf[0].ts < now - 48 * 3600e3) buf.shift();
-        src = buf;
-        if (RAW) fs.appendFileSync(RAW, JSON.stringify(snap) + '\n');
+    if (ticking) return;             // a slow tick must not stack on itself
+    ticking = true;
+    try {
+      const now = Date.now(), out = [];
+      for (const s of syms) {
+        let src = rows;
+        if (live) {
+          const snap = await fetchSnap(BOOK_URL, s);
+          if (!snap) { console.warn(`${new Date(now).toISOString()} fetch failed for ${s} - tick skipped`); continue; }
+          const buf = liveRows.get(s);
+          buf.push(snap);
+          while (buf.length && buf[0].ts < now - 48 * 3600e3) buf.shift();
+          src = buf;
+          if (RAW) appendRot(RAW, JSON.stringify(snap) + '\n', MAX_MB);
+        }
+        const r = build(src, whales, s, now);
+        if (r) out.push(r);
       }
-      const r = build(src, whales, s, now);
-      if (r) out.push(r);
-    }
-    if (OUT) fs.appendFileSync(OUT, out.map(r => JSON.stringify(r)).join('\n') + (out.length ? '\n' : ''));
-    if (once) console.log(JSON.stringify(out.length === 1 ? out[0] : out, null, 1));
-    return out;
+      if (OUT) appendRot(OUT, out.map(r => JSON.stringify(r)).join('\n') + (out.length ? '\n' : ''), MAX_MB);
+      if (once) console.log(JSON.stringify(out.length === 1 ? out[0] : out, null, 1));
+      return out;
+    } finally { ticking = false; }
   };
   tick();
   if (!once) setInterval(tick, +arg('interval', 180) * 1000);
