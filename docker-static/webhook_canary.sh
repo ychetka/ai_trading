@@ -20,19 +20,28 @@ for a in "$@"; do case "$a" in
   --env=*) ENV="${a#*=}";; --max-age-min=*) MAX_AGE_MIN="${a#*=}";; esac; done
 
 [ -f "$ENV" ] || { echo "CANARY UNKNOWN: env file not found: $ENV"; exit 2; }
-TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' "$ENV" | head -1 | cut -d= -f2-)
+TOKEN=$(grep -E '^(export[[:space:]]+)?TELEGRAM_BOT_TOKEN=' "$ENV" | head -1 \
+  | sed -E 's/^[^=]+=//; s/^["'"'"']//; s/["'"'"'\r]+$//')
 [ -n "$TOKEN" ] || { echo "CANARY UNKNOWN: TELEGRAM_BOT_TOKEN missing in $ENV"; exit 2; }
+case "$MAX_AGE_MIN" in (*[!0-9]*|'') echo "CANARY UNKNOWN: bad --max-age-min"; exit 2;; esac
 
-RESP=$(curl -sS --max-time 10 "https://api.telegram.org/bot${TOKEN}/getWebhookInfo" 2>&1) \
+# token kept out of argv via stdin config
+RESP=$(curl -sS --max-time 10 --config <(printf 'url = "https://api.telegram.org/bot%s/getWebhookInfo"\n' "$TOKEN")) \
   || { echo "CANARY UNKNOWN: telegram API unreachable"; exit 2; }
 
 INFO=$(RESP="$RESP" MAX_AGE_MIN="$MAX_AGE_MIN" python3 - <<'PY'
 import json,os,time
-r=json.loads(os.environ['RESP'])
+try:
+    r=json.loads(os.environ['RESP'])
+except (json.JSONDecodeError, KeyError):
+    print('CANARY UNKNOWN: non-JSON api response'); raise SystemExit(2)
 if not r.get('ok'):
     print('CANARY UNKNOWN: api not ok:',r.get('description')); raise SystemExit(2)
 w=r['result']
-led=w.get('last_error_date') or 0
+try:
+    led=int(w.get('last_error_date') or 0)
+except (TypeError, ValueError):
+    led=0
 le=w.get('last_error_message') or ''
 age=int((time.time()-led)/60) if led else -1
 url=w.get('url') or '(none)'
