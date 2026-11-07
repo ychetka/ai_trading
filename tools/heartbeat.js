@@ -15,6 +15,8 @@
 //   books_history.jsonl   - 15-min schedule   -> stale after 25 min
 //   whales_state.json     - 15-min scan       -> stale after 25 min
 //   donchian_state.json   - hourly scan       -> stale after 80 min
+//   voltrack_state.jsonl  - 60s watch (data/) -> stale after 5 min
+//   books_minute.jsonl    - 60s watch (data/) -> stale after 5 min
 //   n8n /healthz          - container alive
 
 const fs = require('fs'), path = require('path');
