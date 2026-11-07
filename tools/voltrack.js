@@ -266,6 +266,23 @@ function appendRot(file, text, maxMb) {
   fs.appendFileSync(file, text);
 }
 
+// symbol list = --symbols union the Donchian universe (re-read each tick so
+// monthly re-ranks propagate). On any read failure falls back to baseSyms.
+function uniSymsOf(baseSyms, universeFile) {
+  try {
+    const u = JSON.parse(fs.readFileSync(universeFile, 'utf8')).universe || [];
+    return [...new Set([...baseSyms, ...u.map(s => String(s).toUpperCase())])];
+  } catch { return null; }
+}
+
+// seed a live buffer for a symbol: re-read the history file so symbols that
+// appear after process start still get the 48h tail (a stale in-memory
+// snapshot would be evicted by the buffer trim at once)
+function seedBuffer(histFile, sym, now) {
+  const rows = loadJsonl(histFile);
+  return rows.filter(r => r.sym === sym && r.ts >= now - 48 * 3600e3);
+}
+
 function main() {
   const once = process.argv.includes('--once') || !process.argv.includes('--watch');
   const live = process.argv.includes('--live');
@@ -275,21 +292,25 @@ function main() {
   // --live: per-symbol rolling buffers seeded from history tail (regime +
   // event chains need lookback); each tick appends the fetched snapshot
   const liveRows = new Map();
-  const seedFrom = Date.now() - 48 * 3600e3;
   const baseSyms = WANT ? [WANT]
     : live ? (arg('symbols', 'BTCUSDT,ETHUSDT,SOLUSDT')).split(',').map(s => s.trim().toUpperCase())
     : [...new Set(rows.map(r => r.sym))].filter(s => /USDT$/.test(s));
   const useUniverse = process.argv.includes('--universe');
+  let uniWarnAt = 0;
   const uniSyms = () => {
     if (!useUniverse) return baseSyms;
-    try {
-      const u = JSON.parse(fs.readFileSync(DONCHIAN_STATE, 'utf8')).universe || [];
-      return [...new Set([...baseSyms, ...u.map(s => String(s).toUpperCase())])];
-    } catch { return baseSyms; }
+    const u = uniSymsOf(baseSyms, DONCHIAN_STATE);
+    if (u) return u;
+    const now = Date.now();
+    if (now - uniWarnAt > 3600e3) {
+      console.warn(`${new Date(now).toISOString()} universe read failed - falling back to --symbols`);
+      uniWarnAt = now;
+    }
+    return baseSyms;
   };
   if (live) {
     for (const s of uniSyms()) {
-      liveRows.set(s, rows.filter(r => r.sym === s && r.ts >= seedFrom));
+      liveRows.set(s, seedBuffer(HIST, s, Date.now()));
     }
   }
   const MAX_MB = +arg('max-mb', 256);
@@ -305,7 +326,7 @@ function main() {
         if (live) {
           const snap = await fetchSnap(BOOK_URL, s);
           if (!snap) { console.warn(`${new Date(now).toISOString()} fetch failed for ${s} - tick skipped`); continue; }
-          if (!liveRows.has(s)) liveRows.set(s, rows.filter(r => r.sym === s && r.ts >= seedFrom));
+          if (!liveRows.has(s)) liveRows.set(s, seedBuffer(HIST, s, now));
           const buf = liveRows.get(s);
           buf.push(snap);
           while (buf.length && buf[0].ts < now - 48 * 3600e3) buf.shift();
@@ -324,4 +345,4 @@ function main() {
   if (!once) setInterval(tick, +arg('interval', 180) * 1000);
 }
 if (require.main === module) main();
-module.exports = { deriveEvents, liqMap, classify, build, loadJsonl, regimeOf, fetchSnap };
+module.exports = { deriveEvents, liqMap, classify, build, loadJsonl, regimeOf, fetchSnap, uniSymsOf, seedBuffer };

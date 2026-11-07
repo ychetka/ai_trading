@@ -9,7 +9,7 @@
       "metrics": {
         "n": "backtest ~120 trades/yr",
         "meanR": 0.68,
-        "maxDD_R": 32,
+        "maxDD_pct": 31.9,
         "horizon": "1H signals, multi-day holds",
         "regime": "mixed (6y Bybit history, 112 symbols)",
         "fees": "full frictions: 5.5bps fee + max(10bps, 3%*ATR) slippage"
