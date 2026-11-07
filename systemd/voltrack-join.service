@@ -1,0 +1,24 @@
+# Copyright (c) 2026 Alexandr Varenic / ychetka. All rights reserved.
+# Licensed under the Creative Commons Attribution-NonCommercial 4.0
+# International License (CC BY-NC 4.0).
+# For commercial use, please contact the author.
+
+# voltrack signal-to-outcome joiner (issue #53). One-shot: resolves open
+# virtual signals in the watch log against later mids and appends closed
+# outcomes to voltrack_outcomes.jsonl. Scheduled by voltrack-join.timer.
+# Install:
+#   cp systemd/voltrack-join.{service,timer} ~/.config/systemd/user/
+#   systemctl --user enable --now voltrack-join.timer
+
+[Unit]
+Description=voltrack signal-to-outcome joiner
+After=voltrack-watch.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/trade-ai-analitic
+Environment=PATH=%h/.nvm/versions/node/v24.18.0/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.nvm/versions/node/v24.18.0/bin/node tools/voltrack_join.js \
+  --in=%h/projects/trade-ai-analitic/data/voltrack_state.jsonl \
+  --out=%h/projects/trade-ai-analitic/data/voltrack_outcomes.jsonl \
+  --expiry-h=4
