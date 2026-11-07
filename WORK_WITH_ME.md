@@ -54,8 +54,10 @@ Two services lead, B2B-first:
    proprietary engine itself.
 
 To start either: open a GitHub issue titled `intake: <short subject>`
-with the hypothesis spec or the automation scope. Commercial terms are
-agreed per engagement before work begins.
+as a contact request only - describe the engagement type, not the
+hypothesis itself. The spec and any proprietary details move to a
+private channel agreed in that thread. Commercial terms are settled
+per engagement before work begins.
 
 ## Explicitly not for sale
 
