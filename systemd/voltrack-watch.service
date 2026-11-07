@@ -1,0 +1,31 @@
+# Copyright (c) 2026 Alexandr Varenic / ychetka. All rights reserved.
+# Licensed under the Creative Commons Attribution-NonCommercial 4.0
+# International License (CC BY-NC 4.0).
+# For commercial use, please contact the author.
+
+# voltrack forward-log collector (issue #47/#53). Runs voltrack.js in --live
+# --watch mode: minute-cadence book snapshots from the n8n books-aggregator
+# webhook + state rows (events, regime, virtual signals) to a JSONL log.
+# Pair with a timer running tools/voltrack_join.js for outcome resolution.
+# Install:
+#   cp systemd/voltrack-watch.service ~/.config/systemd/user/
+#   systemctl --user enable --now voltrack-watch.service
+
+[Unit]
+Description=voltrack live forward-log collector
+After=rootless-docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/trade-ai-analitic
+Environment=PATH=%h/.nvm/versions/node/v24.18.0/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.nvm/versions/node/v24.18.0/bin/node tools/voltrack.js \
+  --watch --live --interval=60 \
+  --symbols=BTCUSDT,ETHUSDT,SOLUSDT \
+  --out=%h/projects/trade-ai-analitic/data/voltrack_state.jsonl \
+  --raw=%h/projects/trade-ai-analitic/data/books_minute.jsonl
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target
