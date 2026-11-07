@@ -37,11 +37,14 @@ const CHECKS = [
   { name: 'books_history', file: 'books_history.jsonl', maxAgeMin: 25 },
   { name: 'whales_state', file: 'whales_state.json', maxAgeMin: 25 },
   { name: 'donchian_state', file: 'donchian_state.json', maxAgeMin: 80 },
+  // voltrack minute-cadence collectors (voltrack-watch.service, 60s ticks)
+  { name: 'voltrack_state', file: 'voltrack_state.jsonl', dir: 'data', maxAgeMin: 5 },
+  { name: 'books_minute', file: 'books_minute.jsonl', dir: 'data', maxAgeMin: 5 },
 ];
 
 const stale = [];
 for (const c of CHECKS) {
-  const p = path.join(N8N, c.file);
+  const p = c.dir ? path.join(ROOT, c.dir, c.file) : path.join(N8N, c.file);
   try {
     const ageMin = (Date.now() - fs.statSync(p).mtimeMs) / 60000;
     if (ageMin > c.maxAgeMin) stale.push(`${c.name}: stale ${Math.round(ageMin)}m (max ${c.maxAgeMin}m)`);
