@@ -8,7 +8,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { flagSetup, analyze } = require('./voltrack_report.js');
-const { autopsy } = require('./cascade_autopsy.js');
+const { autopsy, eligibleRows } = require('./cascade_autopsy.js');
 
 const H = 3600e3;
 const oc = (R, setup = 's1', regime = 'neutral') => ({ sym: 'X', side: 'long', setup, regime, state: 'squeeze', R, reason: 'expiry' });
@@ -24,11 +24,13 @@ test('flagSetup: thresholds', () => {
   assert.strictEqual(flagSetup(25, 0.1, 30, 25), 'INSUFFICIENT'); // between dead-win and flag-win
 });
 
-test('analyze: zero-signal log reports honestly', () => {
+test('analyze: zero-signal log reports honestly + SILENT on known setups', () => {
   const a = analyze([st(0), st(60000, 'squeeze')], []);
   assert.strictEqual(a.outcomes.n, 0);
   assert.strictEqual(Object.keys(a.signals.emitted).length, 0);
   assert.strictEqual(a.states.squeeze, 1);
+  assert.strictEqual(a.flags['long:liq-magnet + B hold + bid stack'].flag, 'SILENT');
+  assert.strictEqual(a.flags['short:ask lid + B break series'].flag, 'SILENT');
 });
 
 test('analyze: outcome breakdowns + flags wire through', () => {
@@ -48,9 +50,10 @@ test('autopsy: picks densest window, honors delay cutoff', () => {
   const rows = [
     st(old, 'range', 100), st(old + 60000, 'squeeze', 101, [{ ts: old + 60000, type: 'WALL_HOLD', side: 'B', px: 99 }]),
     st(old + 120000, 'cascade', 98, [{ ts: old + 120000, type: 'WALL_BREAK', side: 'B', px: 99 }]),
-    st(now - 1000, 'cascade', 50),   // too fresh - caller filters it out
+    st(now - 1000, 'cascade', 50),   // too fresh
   ];
-  const eligible = rows.filter(r => r.ts <= now - 24 * H);
+  const eligible = eligibleRows(rows, 24, now);   // the actual cutoff fn used by main()
+  assert.strictEqual(eligible.length, 3);         // the fresh row is ineligible
   const a = autopsy(eligible, 'BTCUSDT', { hours: 1 });
   assert.ok(a);
   assert.strictEqual(a.rows, 3);

@@ -20,7 +20,7 @@
 
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
-const { loadJsonl } = require('./voltrack.js');
+const { loadJsonl, SETUP_LONG, SETUP_SHORT } = require('./voltrack.js');
 const { summarize } = require('./voltrack_join.js');
 const arg = (k, d) => { const v = (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1]; return v === undefined || v === '' ? d : v; };
 const STATE_FILE = arg('in', path.join(ROOT, 'data', 'voltrack_state.jsonl'));
@@ -57,12 +57,15 @@ function analyze(stateRows, outcomeRows) {
     perSetup[k] = summarize(list);
   }
   const flags = {};
-  const setups = new Set([...Object.keys(emitted), ...Object.keys(perSetup),
+  // known classifier setups are seeded so a never-fired setup shows SILENT
+  const setups = new Set([`long:${SETUP_LONG}`, `short:${SETUP_SHORT}`,
+    ...Object.keys(emitted), ...Object.keys(perSetup),
     ...outcomeRows.map(o => `${o.side}:${o.setup}`)]);
   for (const k of setups) {
     const oc = outcomeRows.filter(o => `${o.side}:${o.setup}` === k);
     const s = oc.length ? summarize(oc) : { n: 0, meanR: null, winPct: null };
-    flags[k] = { flag: flagSetup(s.n, s.meanR, s.winPct, emitted[k] || oc.length),
+    // SILENT = never emitted AND never resolved; outcomes imply it did fire
+    flags[k] = { flag: flagSetup(s.n, s.meanR, s.winPct, (emitted[k] || 0) + oc.length),
       n: s.n, meanR: s.meanR, winPct: s.winPct, emitted: emitted[k] || 0 };
   }
   return {
@@ -129,8 +132,8 @@ function render(a) {
     `DEAD = n>=${a.thresholds.flagN} && (meanR<=0 || win<${a.thresholds.deadWin}%); else INSUFFICIENT.`);
   L.push('');
   if (Object.keys(a.flags).length) {
-    L.push(tbl(['Setup', 'Flag', 'n', 'meanR', 'win%'],
-      Object.entries(a.flags).map(([k, f]) => [k, `**${f.flag}**`, f.n, f.meanR ?? '-', f.winPct ?? '-'])));
+    L.push(tbl(['Setup', 'Flag', 'Emitted', 'n', 'meanR', 'win%'],
+      Object.entries(a.flags).map(([k, f]) => [k, `**${f.flag}**`, f.emitted, f.n, f.meanR ?? '-', f.winPct ?? '-'])));
   } else {
     L.push('No setups have produced signals or outcomes yet.');
   }
@@ -139,7 +142,9 @@ function render(a) {
 }
 
 function main() {
-  const stateRows = loadJsonl(STATE_FILE), outcomeRows = loadJsonl(OUTCOME_FILE);
+  // rotated tails merged - voltrack.js rotates --out/--raw to <file>.1
+  const stateRows = [...loadJsonl(STATE_FILE + '.1'), ...loadJsonl(STATE_FILE)];
+  const outcomeRows = [...loadJsonl(OUTCOME_FILE + '.1'), ...loadJsonl(OUTCOME_FILE)];
   const a = analyze(stateRows, outcomeRows);
   if (process.argv.includes('--json')) { console.log(JSON.stringify(a, null, 1)); return; }
   const md = render(a);

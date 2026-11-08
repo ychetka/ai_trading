@@ -27,20 +27,31 @@ const OUTDIR = arg('outdir', path.join(ROOT, 'autopsies'));
 const fmtPx = p => p == null ? '-' : String(p);
 const fmtTs = t => new Date(t).toISOString().slice(0, 16).replace('T', ' ') + 'Z';
 
+// rows eligible for publication: only rows at least delayH old.
+function eligibleRows(rows, delayH, now = Date.now()) {
+  const cutoff = now - delayH * 3600e3;
+  return rows.filter(r => r.ts <= cutoff);
+}
+
 // pick the HOURS-window with the highest event weight (non-range rows +
-// wall/flip events), then render the autopsy. rows must be eligible
-// (older than delay); the caller enforces the cutoff.
+// wall/flip events). Two pointers - O(n log n) over sorted input.
 function pickWindow(rows, hours) {
   const ms = hours * 3600e3;
-  let best = null;
-  for (let i = 0; i < rows.length; i++) {
-    const w = rows.filter(r => r.ts >= rows[i].ts && r.ts <= rows[i].ts + ms);
-    const events = w.reduce((n, r) => n + (r.events || []).length, 0);
-    const nonRange = w.filter(r => r.state !== 'range').length;
-    const score = events + nonRange * 2;
-    if (!best || score > best.score) best = { w, events, nonRange, score };
+  const recs = [...rows].sort((a, b) => a.ts - b.ts);
+  let best = null, ev = 0, nr = 0, j = 0;
+  for (let i = 0; i < recs.length; i++) {
+    while (j < recs.length && recs[j].ts <= recs[i].ts + ms) {
+      ev += (recs[j].events || []).length;
+      if (recs[j].state !== 'range') nr++;
+      j++;
+    }
+    const score = ev + nr * 2;
+    if (!best || score > best.score) best = { i, j, ev, nr, score, recs };
+    ev -= (recs[i].events || []).length;
+    if (recs[i].state !== 'range') nr--;
   }
-  return best;
+  if (!best) return null;
+  return { w: recs.slice(best.i, best.j), events: best.ev, nonRange: best.nr, score: best.score };
 }
 
 function autopsy(rows, sym, o = {}) {
@@ -57,17 +68,19 @@ function autopsy(rows, sym, o = {}) {
   for (const r of w) for (const e of r.events || []) events.push(e);
   const last = w[w.length - 1];
   return { sym, t0, t1, rows: w.length, events, transitions,
-    mid: { start: mids[0], end: mids[mids.length - 1], min: Math.min(...mids), max: Math.max(...mids) },
-    changePct: mids.length > 1 ? +((mids[mids.length - 1] - mids[0]) / mids[0] * 100).toFixed(2) : 0,
+    mid: { start: mids[0], end: mids[mids.length - 1],
+      min: mids.length ? Math.min(...mids) : null, max: mids.length ? Math.max(...mids) : null },
+    changePct: mids.length > 1 ? +((mids[mids.length - 1] - mids[0]) / mids[0] * 100).toFixed(2) : null,
     states: w.reduce((m, r) => (m[r.state] = (m[r.state] || 0) + 1, m), {}),
     regime: last.regime, longMagnet: last.longMagnet, shortMagnet: last.shortMagnet,
     stats: last.stats, score: win.score };
 }
 
-function render(a) {
+function render(a, draft = false) {
   const L = [`# Cascade Autopsy - ${a.sym} ${fmtTs(a.t0)} .. ${fmtTs(a.t1)}`, ''];
+  if (draft) L.push('_DRAFT - below the T+24h publication delay; internal analysis only._', '');
   L.push(`Delayed replay (T+24h publication rule). ${a.rows} state rows, ` +
-    `mid ${fmtPx(a.mid.start)} -> ${fmtPx(a.mid.end)} (**${a.changePct}%**, ` +
+    `mid ${fmtPx(a.mid.start)} -> ${fmtPx(a.mid.end)} (**${a.changePct ?? '-'}%**, ` +
     `range ${fmtPx(a.mid.min)}..${fmtPx(a.mid.max)}). Regime: **${a.regime}**.`);
   L.push('');
   L.push('## State timeline');
@@ -84,6 +97,7 @@ function render(a) {
     for (const e of a.events.slice(-30)) {
       L.push(`| ${fmtTs(e.ts)} | ${e.type} | ${e.side || e.dir || '-'} | ${fmtPx(e.px)} | ${e.usd || '-'} |`);
     }
+    if (a.events.length > 30) L.push(`\n_+${a.events.length - 30} earlier events in this window omitted._`);
     L.push('');
   }
   L.push('## Liquidation pools at window end (reconstructed)');
@@ -104,18 +118,27 @@ function render(a) {
 }
 
 function main() {
-  const cutoff = Date.now() - DELAY * 3600e3;
-  let rows = loadJsonl(STATE_FILE).filter(r => r.ts <= cutoff);
-  if (SYM) rows = rows.filter(r => r.sym === SYM);
-  const a = autopsy(rows, SYM || 'ALL', { hours: HOURS });
-  if (!a) { console.error(`no eligible rows older than ${DELAY}h`); process.exit(2); }
-  const md = render(a);
+  const delay = Math.max(0, DELAY);
+  // rotated tail merged like the joiner does - history survives rotation
+  const rows = eligibleRows([...loadJsonl(STATE_FILE + '.1'), ...loadJsonl(STATE_FILE)], delay);
+  let a;
+  if (SYM) {
+    a = autopsy(rows.filter(r => r.sym === SYM), SYM, { hours: HOURS });
+  } else {
+    // per-symbol candidates, best score wins - never mix syms in one window
+    const cands = [...new Set(rows.map(r => r.sym))]
+      .map(s => autopsy(rows.filter(r => r.sym === s), s, { hours: HOURS }))
+      .filter(Boolean);
+    a = cands.sort((x, y) => y.score - x.score)[0];
+  }
+  if (!a) { console.error(`no eligible rows older than ${delay}h`); process.exit(2); }
+  const md = render(a, delay < 24);
   if (process.argv.includes('--write')) {
     fs.mkdirSync(OUTDIR, { recursive: true });
-    const f = path.join(OUTDIR, `AUTOPSY-${new Date(a.t0).toISOString().slice(0, 10)}${SYM ? '-' + SYM : ''}.md`);
+    const f = path.join(OUTDIR, `AUTOPSY-${new Date(a.t0).toISOString().slice(0, 10)}-${a.sym}.md`);
     fs.writeFileSync(f, md);
     console.log(`wrote ${f}`);
   } else process.stdout.write(md);
 }
 if (require.main === module) main();
-module.exports = { pickWindow, autopsy, render };
+module.exports = { pickWindow, autopsy, render, eligibleRows };
