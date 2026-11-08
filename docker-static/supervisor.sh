@@ -28,14 +28,10 @@ reserve() {
   else
     "$BRIDGE" reserve "$1" "$2" --project trade-ai --purpose "$3"
   fi || {
-    echo "supervisor: allocation conflict on $1/$2 - refusing to start" >&2
+    echo "supervisor: reserve $1/$2 failed (conflict or registry error) - refusing to start" >&2
     exit 1
   }
 }
-reserve netns_id trade-ai-inner \
-  "anonymous unshare -nm netns for rootless dockerd (docker-static/supervisor.sh)"
-reserve docker_network_cidr 10.0.2.0/24 \
-  "slirp4netns default subnet inside trade-ai-inner"
 D="$(cd "$(dirname "$0")" && pwd)"
 export PATH="$D/docker:$PATH"
 mkdir -p "$D/run" "$D/../docker-data"
@@ -44,6 +40,23 @@ rm -f "$D/inner.pid"
 # cgroup dir for containers, inside the user-delegated subtree
 mkdir -p /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/docker-containers 2>/dev/null || true
 
+reserve netns_id trade-ai-inner \
+  "anonymous unshare -nm netns for rootless dockerd (docker-static/supervisor.sh)"
+reserve docker_network_cidr 10.0.2.0/24 \
+  "slirp4netns default subnet inside trade-ai-inner"
+# Port forwards: declared here (pre-flight, fail-fast BEFORE the
+# stack starts), materialized by the neutral host-ingress layer
+# (host-ingress.timer / bridge ingress sync). The fwd spec points at
+# inner.pid so a netns recycle respawns the forwarders automatically.
+reserve tcp_port 5678 "n8n UI forward" \
+  "ns-pidfile:$D/inner.pid:5678"
+# shared-person TG webhook: opticode.su:8443 (MikroTik DNAT) -> inner :8443
+reserve tcp_port 8443 "TG webhook forward" \
+  "ns-pidfile:$D/inner.pid:8443"
+# ACME http-01 renewal path: MikroTik dstnat :80 -> host :8080 -> inner :80
+reserve tcp_port 8080 "ACME http-01 path" \
+  "ns-pidfile:$D/inner.pid:80"
+
 export BRIDGE
 exec unshare -Ur --propagation unchanged bash -c '
   export PATH="'"$D"'/docker:$PATH"
@@ -51,20 +64,10 @@ exec unshare -Ur --propagation unchanged bash -c '
   bash "$D/inner-dockerd.sh" &
   for i in $(seq 1 200); do [ -f "$D/inner.pid" ] && break; sleep 0.1; done
   INNER=$(cat "$D/inner.pid")
+  [ -n "$INNER" ] || { echo "supervisor: inner.pid never appeared - dockerd failed to start" >&2; exit 1; }
   "$D/slirp4netns" --configure --mtu=65520 "$INNER" tap0 > "$D/slirp.log" 2>&1 &
-  # Port forwards: declared in the allocation registry, materialized
-  # by the neutral host-ingress layer (host-ingress.timer / bridge
-  # ingress sync). The fwd spec points at inner.pid so a netns
-  # recycle respawns the forwarders automatically.
-  "$BRIDGE" reserve tcp_port 5678 --project trade-ai \
-    --purpose "n8n UI forward" --fwd "ns-pidfile:$D/inner.pid:5678" || exit 1
-  # shared-person TG webhook: opticode.su:8443 (MikroTik DNAT) -> inner :8443
-  "$BRIDGE" reserve tcp_port 8443 --project trade-ai \
-    --purpose "TG webhook forward" --fwd "ns-pidfile:$D/inner.pid:8443" || exit 1
-  # ACME http-01 renewal path: MikroTik dstnat :80 -> host :8080 -> inner :80
-  "$BRIDGE" reserve tcp_port 8080 --project trade-ai \
-    --purpose "ACME http-01 path" --fwd "ns-pidfile:$D/inner.pid:80" || exit 1
   # zero-wait publication; host-ingress.timer is the 30s safety net
+  # (requires install_ingress_timer.sh - without it nothing retries)
   "$BRIDGE" ingress sync \
     || echo "supervisor: ingress sync failed - host-ingress.timer will retry" >&2
   wait
