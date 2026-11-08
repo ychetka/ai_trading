@@ -49,6 +49,8 @@ const MAG_ZONE = +arg('magnet-zone', 0.8);            // %: price inside pool zo
 const LID_PCT = +arg('lid-pct', 1.0);                 // %: ask lid max distance
 const LEVERAGE = [[10, 0.5], [25, 0.35], [50, 0.15]]; // tier -> weight
 const SYM_COIN = s => s.replace(/USDT$/, '');
+const SETUP_LONG = 'liq-magnet + B hold + bid stack';
+const SETUP_SHORT = 'ask lid + B break series';
 
 const loadJsonl = f => {
   const out = [];
@@ -210,10 +212,10 @@ function classify(mid, pools, evs, wallsAgg, o = {}) {
   }
   const signals = [];
   if (nearLong && bHd >= 1 && (reload >= 1 || stats.bidUsd >= 50)) {
-    signals.push({ side: 'long', px: mid, setup: 'liq-magnet + B hold + bid stack', target: shortMagnet && shortMagnet.px, invalid: +(longMagnet.px * 0.995).toPrecision(8) });
+    signals.push({ side: 'long', px: mid, setup: SETUP_LONG, target: shortMagnet && shortMagnet.px, invalid: +(longMagnet.px * 0.995).toPrecision(8) });
   }
   if (askLid && bBrk >= 2 && bHd === 0) {
-    signals.push({ side: 'short', px: mid, setup: 'ask lid + B break series', target: longMagnet && longMagnet.px, invalid: +((lidWall ? mid * (1 + lidWall[0] / 100) : mid * 1.01) * 1.005).toPrecision(8) });
+    signals.push({ side: 'short', px: mid, setup: SETUP_SHORT, target: longMagnet && longMagnet.px, invalid: +((lidWall ? mid * (1 + lidWall[0] / 100) : mid * 1.01) * 1.005).toPrecision(8) });
   }
   return { state, dir, target: target && target.px, longMagnet, shortMagnet, stats, reasons, signals };
 }
@@ -347,4 +349,4 @@ function main() {
   if (!once) setInterval(tick, +arg('interval', 180) * 1000);
 }
 if (require.main === module) main();
-module.exports = { deriveEvents, liqMap, classify, build, loadJsonl, regimeOf, fetchSnap, uniSymsOf, seedBuffer };
+module.exports = { deriveEvents, liqMap, classify, build, loadJsonl, regimeOf, fetchSnap, uniSymsOf, seedBuffer, SETUP_LONG, SETUP_SHORT };
