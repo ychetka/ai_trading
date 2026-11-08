@@ -142,7 +142,8 @@ function render(a) {
 }
 
 function main() {
-  // rotated tails merged - voltrack.js rotates --out/--raw to <file>.1
+  // state file rotated by voltrack.js --out -> merge the .1 tail;
+  // outcomes .1 is forward-defense for when the joiner gains rotation
   const stateRows = [...loadJsonl(STATE_FILE + '.1'), ...loadJsonl(STATE_FILE)];
   const outcomeRows = [...loadJsonl(OUTCOME_FILE + '.1'), ...loadJsonl(OUTCOME_FILE)];
   const a = analyze(stateRows, outcomeRows);

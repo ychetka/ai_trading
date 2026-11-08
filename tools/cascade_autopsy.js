@@ -80,8 +80,9 @@ function render(a, draft = false) {
   const L = [`# Cascade Autopsy - ${a.sym} ${fmtTs(a.t0)} .. ${fmtTs(a.t1)}`, ''];
   if (draft) L.push('_DRAFT - below the T+24h publication delay; internal analysis only._', '');
   L.push(`Delayed replay (T+24h publication rule). ${a.rows} state rows, ` +
-    `mid ${fmtPx(a.mid.start)} -> ${fmtPx(a.mid.end)} (**${a.changePct ?? '-'}%**, ` +
-    `range ${fmtPx(a.mid.min)}..${fmtPx(a.mid.max)}). Regime: **${a.regime}**.`);
+    `mid ${fmtPx(a.mid.start)} -> ${fmtPx(a.mid.end)} (` +
+    (a.changePct != null ? `**${a.changePct}%**` : 'n/a') +
+    `, range ${fmtPx(a.mid.min)}..${fmtPx(a.mid.max)}). Regime: **${a.regime}**.`);
   L.push('');
   L.push('## State timeline');
   L.push('');
