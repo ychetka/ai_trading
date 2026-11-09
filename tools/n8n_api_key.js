@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+// Copyright (c) 2026 Alexandr Varenic / ychetka. All rights reserved.
+// Licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).
+// For commercial use, please contact the author.
+
 // Mint a n8n public-API key and verify it against the live instance.
 //
 // n8n 2.x API keys are HS256 JWTs issued by n8n's JwtService. When

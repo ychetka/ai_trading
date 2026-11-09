@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Alexandr Varenic / ychetka. All rights reserved.
+// Licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).
+// For commercial use, please contact the author.
+
 'use strict';
 // n8n public-API client + workflow deployer (n8n 2.x).
 //
