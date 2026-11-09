@@ -33,13 +33,18 @@ function canon(v, inNode) {
     const out = {};
     for (const k of Object.keys(v).sort()) {
       if (inNode && NODE_VOLATILE.has(k)) continue;
-      if (k === 'position') continue;               // geometry, not logic
       out[k] = canon(v[k], k === 'nodes');
     }
     return out;
   }
   return v;
 }
+// Top-level node keys n8n manages itself - ignored when deciding
+// whether stored content differs from the spec.
+const SERVER_MANAGED = new Set([
+  'webhookId', 'notices', 'pinData', 'meta', 'id', 'position',
+  'versionId', 'createdAt', 'updatedAt', 'notes',
+]);
 function canonNodes(nodes) { return canon(nodes, false).map(n => canon(n, true)); }
 function canonConns(conns) { return canon(conns, false); }
 
@@ -98,7 +103,10 @@ async function probeWebhook(hookPath, o = {}) {
       await new Promise(r2 => setTimeout(r2, 1200));
       continue;
     }
-    return { ok: true, ...last };
+    // strict: only the wrong-method hint proves registration; any
+    // other response (5xx, proxy error, unrelated 404) fails loudly.
+    if (/Did you mean/i.test(txt)) return { ok: true, ...last };
+    return { ok: false, ...last };
   }
   return { ok: false, ...last };
 }
@@ -112,8 +120,16 @@ async function deployWorkflow(spec, o = {}) {
   const pre = await getWorkflow(id, o);
   const wasActive = !!pre.active;
   const preByName = new Map((pre.nodes || []).map(n => [n.name, n]));
+  // symmetric drift check: spec keys must match stored, and stored
+  // must not carry functional keys the spec dropped (server-managed
+  // keys are tolerated either way).
+  const drifted = (want, got) => {
+    if (!specSubsetMatch(canon(want, true), canon(got, true))) return true;
+    const wk = new Set(Object.keys(want));
+    return Object.keys(got).some(k => !wk.has(k) && !SERVER_MANAGED.has(k));
+  };
   const changed = spec.nodes.length !== (pre.nodes || []).length
-    || spec.nodes.some(n => { const g = preByName.get(n.name); return !g || !specSubsetMatch(canon(n, true), canon(g, true)); })
+    || spec.nodes.some(n => { const g = preByName.get(n.name); return !g || drifted(n, g); })
     || JSON.stringify(canonConns(spec.connections)) !== JSON.stringify(canonConns(pre.connections));
 
   if (wasActive) await api('POST', `/workflows/${id}/deactivate`, undefined, o);
@@ -145,8 +161,12 @@ async function deployWorkflow(spec, o = {}) {
   const gotConns = JSON.stringify(canonConns(post.connections));
   if (wantConns !== gotConns) throw new Error(`deploy ${spec.name}: connections mismatch after PUT`);
 
+  // default: preserve the pre-deploy active state (parity with the
+  // sqlite path, which never flipped entity.active). spec.activate
+  // explicitly overrides.
+  const wantActive = spec.activate === undefined ? wasActive : spec.activate !== false;
   let activeVersionId = null;
-  if (spec.activate !== false) {
+  if (wantActive) {
     await api('POST', `/workflows/${id}/activate`, undefined, o);
     const fin = await getWorkflow(id, o);
     activeVersionId = fin.activeVersionId || fin.activeVersion?.id || null;
@@ -159,7 +179,7 @@ async function deployWorkflow(spec, o = {}) {
   }
 
   const probes = [];
-  for (const p of spec.webhookPaths || []) {
+  for (const p of wantActive ? (spec.webhookPaths || []) : []) {
     const pr = await probeWebhook(typeof p === 'string' ? p : p.path, typeof p === 'string' ? o : { ...o, method: p.method });
     probes.push({ path: p, ...pr });
     if (!pr.ok) throw new Error(`deploy ${spec.name}: webhook ${p} not registered after activate`);
@@ -170,7 +190,7 @@ async function deployWorkflow(spec, o = {}) {
     versionId: post.versionId || put.versionId,
     activeVersionId,
     wasActive,
-    verified: { nodes: true, connections: true, active: spec.activate !== false, webhooks: probes },
+    verified: { nodes: true, connections: true, active: wantActive, webhooks: probes },
     changed,
   };
 }

@@ -13,9 +13,11 @@ test('canonNodes: volatile fields stripped', () => {
   assert.deepStrictEqual(ca.parameters, cb.parameters);
 });
 
-test('canonNodes: nested volatile keys removed inside parameters', () => {
-  const n = { name: 'N', parameters: { opts: { position: 1, k: 2 } } };
-  assert.deepStrictEqual(canonNodes([n])[0].parameters.opts, { k: 2 });
+test('canonNodes: position stripped at node level only', () => {
+  const n = { name: 'N', position: [5, 5], parameters: { opts: { position: 1, k: 2 } } };
+  const c = canonNodes([n])[0];
+  assert.strictEqual(c.position, undefined);
+  assert.deepStrictEqual(c.parameters.opts, { position: 1, k: 2 });
 });
 
 test('canonConns: key order normalized', () => {

@@ -66,6 +66,7 @@ exec unshare -Ur --propagation unchanged bash -c '
   export PATH="'"$D"'/docker:$PATH"
   D="'"$D"'"
   bash "$D/inner-dockerd.sh" &
+  DOCK=$!
   for i in $(seq 1 200); do [ -f "$D/inner.pid" ] && break; sleep 0.1; done
   INNER=$(cat "$D/inner.pid")
   [ -n "$INNER" ] || { echo "supervisor: inner.pid never appeared - dockerd failed to start" >&2; exit 1; }
@@ -81,5 +82,11 @@ exec unshare -Ur --propagation unchanged bash -c '
       || echo "supervisor: ingress sync failed - retrying in 30s" >&2
     sleep 30
   done &
-  wait
+  SYNC_LOOP=$!
+  # wait on dockerd ONLY: its death must kill the supervisor so
+  # systemd Restart=always recovers the stack. The sync loop and
+  # slirp4netns are auxiliary - reaped explicitly on the way out.
+  wait "$DOCK"
+  kill "$SYNC_LOOP" 2>/dev/null
+  exit 1
 '

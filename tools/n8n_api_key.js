@@ -24,7 +24,8 @@ const fs   = require('fs');
 const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
 
-const { arg } = require('./lib/store');
+const { arg, envVal } = require('./lib/store');
+const { assertNode } = require('./lib/config');
 const has = k => process.argv.includes('--' + k);
 
 const { paths } = require('./lib/config');
@@ -59,9 +60,13 @@ async function apiGet(p, key) {
 }
 
 async function main() {
+  assertNode();
   if (has('verify')) {
-    const key = arg('api-key', process.env.N8N_API_KEY);
-    if (!key) { console.error('FAIL: --verify needs --api-key or N8N_API_KEY env'); process.exit(2); }
+    // key comes from env/ENV file only - never argv (argv leaks into
+    // ps output and shell history)
+    const key = process.env.N8N_API_KEY ||
+      envVal('N8N_API_KEY');
+    if (!key) { console.error('FAIL: --verify needs N8N_API_KEY in env or ./ENV'); process.exit(2); }
     const r = await apiGet('/workflows?limit=1', key);
     if (r.status === 200) { console.log(`OK: key accepted by ${API} (GET /workflows -> 200)`); return; }
     console.error(`FAIL: ${API} returned ${r.status}: ${r.body.slice(0, 200)}`);
