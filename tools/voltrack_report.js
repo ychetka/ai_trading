@@ -20,9 +20,9 @@
 
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
-const { loadJsonl, SETUP_LONG, SETUP_SHORT } = require('./voltrack.js');
+const { SETUP_LONG, SETUP_SHORT } = require('./voltrack.js');
 const { summarize } = require('./voltrack_join.js');
-const arg = (k, d) => { const v = (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1]; return v === undefined || v === '' ? d : v; };
+const { arg, loadJsonlRotated } = require('./lib/store');
 const STATE_FILE = arg('in', path.join(ROOT, 'data', 'voltrack_state.jsonl'));
 const OUTCOME_FILE = arg('outcomes', path.join(ROOT, 'data', 'voltrack_outcomes.jsonl'));
 const REPORT = arg('report', path.join(ROOT, 'VOLTRACK_REPORT.md'));
@@ -144,8 +144,8 @@ function render(a) {
 function main() {
   // state file rotated by voltrack.js --out -> merge the .1 tail;
   // outcomes .1 is forward-defense for when the joiner gains rotation
-  const stateRows = [...loadJsonl(STATE_FILE + '.1'), ...loadJsonl(STATE_FILE)];
-  const outcomeRows = [...loadJsonl(OUTCOME_FILE + '.1'), ...loadJsonl(OUTCOME_FILE)];
+  const stateRows = loadJsonlRotated(STATE_FILE);
+  const outcomeRows = loadJsonlRotated(OUTCOME_FILE);
   const a = analyze(stateRows, outcomeRows);
   if (process.argv.includes('--json')) { console.log(JSON.stringify(a, null, 1)); return; }
   const md = render(a);

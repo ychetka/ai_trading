@@ -11,10 +11,10 @@
 //   Schedule 15min                 → collector: universe snapshots → JSONL (180d)
 // Run with n8n STOPPED. Deploy: node tools/deploy_books.js
 const path = require('path'), crypto = require('crypto');
-const { deployWorkflow } = require('./lib/n8n-sqlite-deployer');
-const arg = k => (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1];
-const DB = arg('db') || path.join(__dirname, '..', 'docker-data',
-  'volumes/crypto-analyst_n8n_storage/_data/.n8n/database.sqlite');
+const { deployWorkflow } = require('./lib/n8n-deploy');
+const { arg } = require('./lib/store');
+const { paths } = require('./lib/config');
+const DB = arg('db') || paths.N8N_DB;
 
 const H1 = crypto.randomUUID(), H2 = crypto.randomUUID(), H3 = crypto.randomUUID(), H4 = crypto.randomUUID();
 

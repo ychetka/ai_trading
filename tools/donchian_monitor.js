@@ -20,7 +20,7 @@
 // stdout events: {type:'entry'|'exit', ...} — n8n renders to Telegram.
 
 const fs = require('fs'), path = require('path');
-const arg = k => (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1];
+const { arg } = require('./lib/store');
 const VERBOSE = process.argv.includes('--verbose');
 const STATE = arg('state') || path.join(__dirname, '..', 'data', 'donchian_state.json');
 

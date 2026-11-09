@@ -22,9 +22,9 @@ BRIDGE="${BRIDGE_BIN:-$HOME/.local/bin/bridge}"
   exit 1
 }
 reserve() {
-  # reserve <type> <id> <purpose> [fwd-spec]
+  # reserve <type> <id> <purpose> [fwd-spec] [bind-addr]
   if [ -n "${4:-}" ]; then
-    "$BRIDGE" reserve "$1" "$2" --project trade-ai --purpose "$3" --fwd "$4"
+    "$BRIDGE" reserve "$1" "$2" --project trade-ai --purpose "$3" --fwd "$4" ${5:+--bind "$5"}
   else
     "$BRIDGE" reserve "$1" "$2" --project trade-ai --purpose "$3"
   fi || {
@@ -48,8 +48,12 @@ reserve docker_network_cidr 10.0.2.0/24 \
 # stack starts), materialized by the neutral host-ingress layer
 # (host-ingress.timer / bridge ingress sync). The fwd spec points at
 # inner.pid so a netns recycle respawns the forwarders automatically.
-reserve tcp_port 5678 "n8n UI forward" \
-  "ns-pidfile:$D/inner.pid:5678"
+# n8n UI + local webhooks: loopback-only (AGENTS.md: no public
+# ingress since 2026-10; LAN reachability is an open-Code-nodes
+# risk). External traffic never needs this port.
+reserve tcp_port 5678 "n8n UI forward (loopback)" \
+  "ns-pidfile:$D/inner.pid:5678" \
+  127.0.0.1
 # shared-person TG webhook: opticode.su:8443 (MikroTik DNAT) -> inner :8443
 reserve tcp_port 8443 "TG webhook forward" \
   "ns-pidfile:$D/inner.pid:8443"
@@ -62,13 +66,27 @@ exec unshare -Ur --propagation unchanged bash -c '
   export PATH="'"$D"'/docker:$PATH"
   D="'"$D"'"
   bash "$D/inner-dockerd.sh" &
+  DOCK=$!
   for i in $(seq 1 200); do [ -f "$D/inner.pid" ] && break; sleep 0.1; done
   INNER=$(cat "$D/inner.pid")
   [ -n "$INNER" ] || { echo "supervisor: inner.pid never appeared - dockerd failed to start" >&2; exit 1; }
   "$D/slirp4netns" --configure --mtu=65520 "$INNER" tap0 > "$D/slirp.log" 2>&1 &
-  # zero-wait publication; host-ingress.timer is the 30s safety net
-  # (requires install_ingress_timer.sh - without it nothing retries)
-  "$BRIDGE" ingress sync \
-    || echo "supervisor: ingress sync failed - host-ingress.timer will retry" >&2
-  wait
+  # Ingress reconciler loop INSIDE this user namespace: ns-* forward
+  # specs need CAP_SYS_ADMIN over the netns owner userns - only this
+  # context has it. The host-side host-ingress.timer is restricted to
+  # tcp: specs (SESSIONS_BRIDGE_INGRESS_KINDS=tcp) and cannot (re)spawn
+  # ns-* forwarders - this loop is their lifecycle owner and retries
+  # every 30s (also respawns on netns recycle since inner.pid changes).
+  while :; do
+    "$BRIDGE" ingress sync \
+      || echo "supervisor: ingress sync failed - retrying in 30s" >&2
+    sleep 30
+  done &
+  SYNC_LOOP=$!
+  # wait on dockerd ONLY: its death must kill the supervisor so
+  # systemd Restart=always recovers the stack. The sync loop and
+  # slirp4netns are auxiliary - reaped explicitly on the way out.
+  wait "$DOCK"
+  kill "$SYNC_LOOP" 2>/dev/null
+  exit 1
 '

@@ -28,13 +28,12 @@
 //   monthly re-ranks propagate without a service restart.
 // Exit: --once prints {ts,sym,mid,state,dir,regime,pools,stats,signals,events[]}.
 
-const fs = require('fs'), path = require('path');
-const ROOT = path.join(__dirname, '..');
-const arg = (k, d) => { const v = (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1]; return v === undefined || v === '' ? d : v; };
-const DATA = arg('data', path.join(ROOT, 'docker-data', 'volumes/crypto-analyst_n8n_storage/_data'));
-const HIST = arg('history', path.join(DATA, 'books_history.jsonl'));
-const WHEV = arg('whaleevents', path.join(DATA, 'whale_events.jsonl'));
-const DONCHIAN_STATE = arg('universe-file', path.join(DATA, 'donchian_state.json'));
+const fs = require('fs');
+const { arg, loadJsonl, appendJsonl } = require('./lib/store');
+const { paths, BASE_SYMBOLS } = require('./lib/config');
+const HIST = arg('history', paths.BOOKS_HISTORY);
+const WHEV = arg('whaleevents', paths.WHALE_EVENTS);
+const DONCHIAN_STATE = arg('universe-file', paths.DONCHIAN_STATE);
 const WANT = (arg('symbol', '') || '').toUpperCase() || null;
 const WINDOW = +arg('window', 7200) * 1000;          // event window, sec
 const MIN_USD = +arg('min-usd', 2e6);                 // event-model wall floor
@@ -51,17 +50,6 @@ const LEVERAGE = [[10, 0.5], [25, 0.35], [50, 0.15]]; // tier -> weight
 const SYM_COIN = s => s.replace(/USDT$/, '');
 const SETUP_LONG = 'liq-magnet + B hold + bid stack';
 const SETUP_SHORT = 'ask lid + B break series';
-
-const loadJsonl = f => {
-  const out = [];
-  try {
-    for (const l of fs.readFileSync(f, 'utf8').split('\n')) {
-      if (!l) continue;
-      try { out.push(JSON.parse(l)); } catch {}
-    }
-  } catch {}
-  return out;
-};
 
 // ---------- A) wall event model ------------------------------------------
 // Chain walls across snapshots by side + absolute price; classify each
@@ -260,13 +248,10 @@ async function fetchSnap(bookUrl, sym, timeoutMs = 8000) {
 }
 
 // append with bounded size: past --*-max-mb the file is rotated to <name>.1
-// (single backup; mirrors the books_history 30d-rotation convention)
-function appendRot(file, text, maxMb) {
-  try {
-    if (fs.statSync(file).size > maxMb * 1e6) fs.renameSync(file, file + '.1');
-  } catch {}
-  fs.appendFileSync(file, text);
-}
+// (single backup; mirrors the books_history 30d-rotation convention).
+// Shared implementation: tools/lib/store.js appendJsonl.
+const appendRot = (file, text, maxMb) =>
+  appendJsonl(file, String(text).replace(/\n$/, ''), maxMb);
 
 // symbol list = --symbols union the Donchian universe (re-read each tick so
 // monthly re-ranks propagate). On any read failure falls back to baseSyms.
@@ -295,7 +280,7 @@ function main() {
   // event chains need lookback); each tick appends the fetched snapshot
   const liveRows = new Map();
   const baseSyms = WANT ? [WANT]
-    : live ? (arg('symbols', 'BTCUSDT,ETHUSDT,SOLUSDT')).split(',').map(s => s.trim().toUpperCase())
+    : live ? (arg('symbols', BASE_SYMBOLS.join(','))).split(',').map(s => s.trim().toUpperCase())
     : [...new Set(rows.map(r => r.sym))].filter(s => /USDT$/.test(s));
   const useUniverse = process.argv.includes('--universe');
   let uniWarnAt = 0;

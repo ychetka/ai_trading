@@ -21,6 +21,8 @@
 //
 // Run with n8n STOPPED. Requires node:sqlite (Node 22+).
 
+const { assertNode } = require('./config');
+assertNode();
 const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 
