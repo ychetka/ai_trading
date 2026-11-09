@@ -14,9 +14,9 @@
 
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
-const arg = k => (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1];
-const EV = arg('events') || path.join(ROOT, 'docker-data',
-  'volumes/crypto-analyst_n8n_storage/_data/.n8n/whale_events.jsonl');
+const { arg } = require('./lib/store');
+const { paths } = require('./lib/config');
+const EV = arg('events') || paths.WHALE_EVENTS;
 const TYPE = arg('evtype') || 'cluster';
 const KDIR = path.join(ROOT, 'data', 'whale_klines');
 fs.mkdirSync(KDIR, { recursive: true });

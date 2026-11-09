@@ -25,14 +25,12 @@ const https = require('https');
 
 const ROOT = path.join(__dirname, '..');
 // state files land in the volume root (container /home/node/.n8n -> _data)
-const N8N = path.join(ROOT, 'docker-data',
-  'volumes/crypto-analyst_n8n_storage/_data');
+const { paths } = require('./lib/config');
+const N8N = paths.N8N_DATA;
 const HB_STATE = path.join(ROOT, 'data', 'heartbeat_state.json');
 
-const envFile = p => { try { return fs.readFileSync(p, 'utf8'); } catch { return ''; } };
-const ENV_TXT = envFile(path.join(ROOT, 'ENV')) || envFile(path.join(ROOT, '.env'));
-const env = k => process.env[k] ||
-  (ENV_TXT.match(new RegExp(`^\\s*${k}\\s*=\\s*"?([^"\\n]+)"?`, 'm')) || [])[1] || '';
+const { envVal } = require('./lib/store');
+const env = k => envVal(k, ROOT);
 
 const DEDUP_H = 4;
 const CHECKS = [

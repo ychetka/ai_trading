@@ -21,7 +21,7 @@ WorkingDirectory=%h/projects/trade-ai-analitic
 Environment=PATH=%h/.nvm/versions/node/v24.18.0/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/.nvm/versions/node/v24.18.0/bin/node tools/voltrack.js \
   --watch --live --interval=60 \
-  --symbols=BTCUSDT,ETHUSDT,SOLUSDT --universe \
+  --universe \
   --out=%h/projects/trade-ai-analitic/data/voltrack_state.jsonl \
   --raw=%h/projects/trade-ai-analitic/data/books_minute.jsonl
 Restart=always

@@ -26,7 +26,7 @@
 
 const fs = require('fs');
 const { loadJsonl } = require('./voltrack.js');
-const arg = (k, d) => { const v = (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1]; return v === undefined || v === '' ? d : v; };
+const { arg, loadJsonlRotated } = require('./lib/store');
 
 const IN = arg('in', null);
 const OUT = arg('out', null);
@@ -102,7 +102,7 @@ function main() {
   if (!IN) { console.error('usage: --in=<voltrack_state.jsonl> [--out=outcomes.jsonl] [--expiry-h=4]'); process.exit(2); }
   // merge the rotated tail too: voltrack.js rotates --out to <file>.1,
   // and positions opened just before rotation live there, not in IN
-  const rows = [...loadJsonl(IN + '.1'), ...loadJsonl(IN)];
+  const rows = loadJsonlRotated(IN);
   const { closed, open } = resolve(rows);
   if (OUT) {
     const seen = new Set(loadJsonl(OUT).map(c => `${c.sym}:${c.side}:${c.entryTs}`));

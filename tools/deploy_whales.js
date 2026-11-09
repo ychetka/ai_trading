@@ -10,16 +10,14 @@
 //   Schedule 15min / GET /webhook/whales          -> scan + cluster check
 //   GET /webhook/whale-history?hours=N            -> JSONL event log
 // Run with n8n STOPPED. Deploy: node tools/deploy_whales.js [--update]
-const fs = require('fs'), path = require('path'), crypto = require('crypto');
-const { deployWorkflow } = require('./lib/n8n-sqlite-deployer');
-const arg = k => (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1];
-const DB = arg('db') || path.join(__dirname, '..', 'docker-data',
-  'volumes/crypto-analyst_n8n_storage/_data/.n8n/database.sqlite');
+const path = require('path'), crypto = require('crypto');
+const { deployWorkflow } = require('./lib/n8n-deploy');
+const { arg } = require('./lib/store');
+const { paths } = require('./lib/config');
+const DB = arg('db') || paths.N8N_DB;
 
-const envFile = p => { try { return fs.readFileSync(p, 'utf8'); } catch { return ''; } };
-const ENV_TXT = envFile(path.join(__dirname, '..', 'ENV')) || envFile(path.join(__dirname, '..', '.env'));
-const TG_CHAT_ID = process.env.TG_CHAT_ID ||
-  (ENV_TXT.match(/^\s*TG_CHAT_ID\s*=\s*"?([^"\n]+)"?/m) || [])[1] || 'YOUR_CHAT_ID';
+const { envVal } = require('./lib/store');
+const TG_CHAT_ID = envVal('TG_CHAT_ID') || 'YOUR_CHAT_ID';
 
 const H1 = crypto.randomUUID(), H2 = crypto.randomUUID();
 

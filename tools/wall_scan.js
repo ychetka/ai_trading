@@ -16,9 +16,9 @@
 
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
-const arg = (k, d) => { const v = (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1]; return v === undefined || v === '' ? d : v; };
-const HIST = arg('history', path.join(ROOT, 'docker-data',
-  'volumes/crypto-analyst_n8n_storage/_data/books_history.jsonl'));
+const { arg } = require('./lib/store');
+const { paths } = require('./lib/config');
+const HIST = arg('history', paths.BOOKS_HISTORY);
 const WANT = (arg('symbol', null) || '').toUpperCase() || null;
 const MIN_USD = +arg('min-usd', 500000);
 const MIN_DIST = +arg('min-dist', 0.3);   // ignore walls closer than this % to mid (top-of-book noise)

@@ -16,8 +16,7 @@
 
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
-const { loadJsonl } = require('./voltrack.js');
-const arg = (k, d) => { const v = (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1]; return v === undefined || v === '' ? d : v; };
+const { arg, loadJsonlRotated } = require('./lib/store');
 const STATE_FILE = arg('in', path.join(ROOT, 'data', 'voltrack_state.jsonl'));
 const SYM = (arg('symbol', '') || '').toUpperCase();
 const HOURS = +arg('hours', 4);
@@ -121,7 +120,7 @@ function render(a, draft = false) {
 function main() {
   const delay = Math.max(0, DELAY);
   // rotated tail merged like the joiner does - history survives rotation
-  const rows = eligibleRows([...loadJsonl(STATE_FILE + '.1'), ...loadJsonl(STATE_FILE)], delay);
+  const rows = eligibleRows(loadJsonlRotated(STATE_FILE), delay);
   let a;
   if (SYM) {
     a = autopsy(rows.filter(r => r.sym === SYM), SYM, { hours: HOURS });
