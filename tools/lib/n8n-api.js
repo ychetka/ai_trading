@@ -97,15 +97,16 @@ async function probeWebhook(hookPath, o = {}) {
     const r = await fetch(url, { method: probe });
     const txt = await r.text();
     last = { status: r.status, body: txt.slice(0, 120) };
+    // strict: only the wrong-method hint proves registration; any
+    // other response (5xx, proxy error, unrelated 404) fails loudly.
+    // Checked FIRST so a phrasing change on the unregistered-404
+    // can't shadow a valid hint.
+    if (/Did you mean/i.test(txt)) return { ok: true, ...last };
     // unregistered paths: 'The requested webhook "..." is not registered.'
-    // registered, wrong method: 'not registered for <M> requests. Did you mean...'
     if (r.status === 404 && /The requested webhook/.test(txt)) {
       await new Promise(r2 => setTimeout(r2, 1200));
       continue;
     }
-    // strict: only the wrong-method hint proves registration; any
-    // other response (5xx, proxy error, unrelated 404) fails loudly.
-    if (/Did you mean/i.test(txt)) return { ok: true, ...last };
     return { ok: false, ...last };
   }
   return { ok: false, ...last };

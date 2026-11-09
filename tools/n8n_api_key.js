@@ -14,7 +14,7 @@
 // Usage:
 //   node tools/n8n_api_key.js --mint [--label deployer] [--days 365]
 //       [--config <path>] [--db <path>] [--api-url <url>]
-//   node tools/n8n_api_key.js --verify --api-key <jwt>
+//   node tools/n8n_api_key.js --verify   (key via N8N_API_KEY env/ENV)
 // The minted key is printed ONCE to stdout — store it in ./ENV as
 // N8N_API_KEY=<jwt> and do not commit it.
 
@@ -22,10 +22,11 @@
 const fs   = require('fs');
 
 const crypto = require('crypto');
+const { assertNode } = require('./lib/config');
+assertNode();          // node:sqlite floor before the module loads
 const { DatabaseSync } = require('node:sqlite');
 
 const { arg, envVal } = require('./lib/store');
-const { assertNode } = require('./lib/config');
 const has = k => process.argv.includes('--' + k);
 
 const { paths } = require('./lib/config');
@@ -60,7 +61,6 @@ async function apiGet(p, key) {
 }
 
 async function main() {
-  assertNode();
   if (has('verify')) {
     // key comes from env/ENV file only - never argv (argv leaks into
     // ps output and shell history)
@@ -73,7 +73,7 @@ async function main() {
     process.exit(1);
   }
   if (!has('mint')) {
-    console.log('Usage: --mint [--label L] [--days N] | --verify --api-key <jwt>');
+    console.log('Usage: --mint [--label=L] [--days=N] | --verify');
     process.exit(2);
   }
   const encKey = JSON.parse(fs.readFileSync(CONFIG, 'utf8')).encryptionKey;
