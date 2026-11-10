@@ -12,7 +12,7 @@ bullets manually.
 
 --- a/.devin/agents/git.md
 +++ b/.devin/agents/git.md
-@@ -49,4 +49,22 @@
+@@ -49,4 +49,26 @@
    вызове append второй записи, закрывающей open-запись: тот же
    item, action вида resolve_<что>, status=closed, verdict по факту
    итога. Осиротевшие open-записи после ответа - дефект отчётности,
@@ -21,17 +21,21 @@ bullets manually.
 +  failure_class=gate_blocked, в result уходит текст нарушения.
 +  Диспатч, сообщающий резолюцию этого блока (успешный re-push,
 +  фикс-коммит, разблокированный релиз), ОБЯЗАН закрыть именно эту
-+  запись: тот же item, action resolve_gate_block, status=closed,
-+  а в result - ссылка на исходное gate-blocked событие
-+  ("closes open <action> from <ts>: <краткая причина блока>").
++  запись ДВУМЯ действиями: (а) переписать поле status самой
++  open-записи на closed В ТОМ ЖЕ jsonl-файле - он mutable,
++  append-only resolve-запись сама по себе НЕ снимает флаг
++  (verify_constraints грепает сырые строки open+failure);
++  (б) append resolve_gate_block со status=closed и ссылкой на
++  исходное событие ("closes open <action> from <ts>: <причина>").
 +- На входе в диспатч: прочитай cycle_log.jsonl и собери свои
 +  open-записи (actor=git-agent, status=open) по ВСЕМ item'ам -
 +  резолюция может прийти в чужом диспатче (инцидент
 +  devin-telegram 2026-11-06: релиз разблокировал другой агент).
 +  Каждая open-запись - твоё обязательство: либо закрывается
-+  resolve_-записью при фактической резолюции, либо - если блок
-+  ещё жив - закрывается status=closed + verdict=escalated с
-+  result "still blocked by <причина>": висячий open verify_
++  парой (flip status in-place + append resolve_) при фактической
++  резолюции, либо - если блок ещё жив - переписывается in-place
++  на status=closed + verdict=escalated (result дополняется
++  "still blocked by <причина>"): висячий open+failure verify_
 +  constraints флагает как ложный след инцидента независимо от
 +  того, что написано в отчёте сессии. Молчаливо оставленные
 +  open-записи - дефект отчётности.
