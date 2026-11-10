@@ -75,7 +75,8 @@ Owned here:
   inner ingress reconcile loop)
 - Resource declarations pre-flight: `bridge reserve` for
   `netns_id trade-ai-inner`, `docker_network_cidr 10.0.2.0/24`,
-  and the three `tcp_port` rows with `fwd=`/`bind=` tokens.
+  and the three `tcp_port` rows with `fwd=` tokens (plus `bind=`
+  on 5678).
   Failure to reserve = refuse to start (fail-fast).
 - The ns-* forwarder *lifecycle*: the supervisor's in-userns
   `bridge ingress sync` loop owns spawning/respawning them;
@@ -104,10 +105,13 @@ owns the fix.
 Trace order for ingress-class incidents (8443-style):
 
 0. Split router-vs-host FIRST: probe the host's LAN address
-   directly (`curl http://<lan-ip>:8443/`, bypassing DNAT). If the
-   LAN probe works but the public one fails, the break is UPSTREAM
-   of the host - MikroTik DNAT / ISP / DNS - and the trace below is
-   pointless. Only continue if the LAN probe also fails.
+   directly, bypassing DNAT (`nc -zv <lan-ip> 8443` for a bare
+   connect check, or `curl -k https://<lan-ip>:8443/` for the
+   app-level response - the port is TLS, plain http gives a false
+   negative). If the LAN probe works but the public one fails, the
+   break is UPSTREAM of the host - MikroTik DNAT / ISP / DNS - and
+   the trace below is pointless. Only continue if the LAN probe
+   also fails.
 1. External probe: `curl -s -o /dev/null -w '%{http_code}'
    https://opticode.su:8443/...` (or the canary) - confirms the
    outage is real end-to-end.
