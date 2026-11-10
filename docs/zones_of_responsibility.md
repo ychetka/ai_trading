@@ -36,6 +36,9 @@ The same shape applies to the other declared forwards:
 | 8443 | 0.0.0.0 | inner :8443 | TG webhook (MikroTik DNAT :8443) |
 | 9223 | - | - | shared_person chrome debug port (their row) |
 
+Only the 5678 row carries an explicit `bind=` token; the other two
+default to `0.0.0.0` because they serve real external traffic.
+
 ## Zones table
 
 | layer | owner | artifacts |
@@ -44,10 +47,17 @@ The same shape applies to the other declared forwards:
 | Host listen sockets + forwarder processes + allocation registry | sessions-bridge | `bridge reserve`, `bridge ingress sync`, `host-ingress.timer`, docs/ALLOCATIONS.md |
 | userns + netns + mountns + dockerd + slirp4netns + fwd declarations | trade-ai-analitic (this repo) | `docker-static/supervisor.sh`, `inner-dockerd.sh`, `runc-wrapper.sh`, `slirp4netns`, `docker-data/` |
 | Container payload: workflows, app code inside n8n/edge | shared_person | their workflows + compose services |
+| Neutral ingress reconciler (host side) | sessions-bridge | `host-ingress.timer`, `SESSIONS_BRIDGE_INGRESS_KINDS=tcp` |
 | Session bus, mailbox, task dispatch, allocations | sessions-bridge | `bridge` CLI, queue dirs |
 | Telegram message delivery daemon | devin-telegram | `devin-telegram.service` |
 | Fleet orchestration, daemon host | ai_controller | orchestrator session |
-| Host systemd units not owned by a project | host-services | retro-declared: copilot-api, vk-token, filter-chain, host-ingress, voltrack-watch |
+| Host systemd units not owned by a project | host-services | retro-declared: copilot-api, vk-token, filter-chain |
+
+Registry caveat: `bridge allocations` currently shows
+`voltrack-watch` under host-services - a retro-declaration predating
+this registry. The unit file lives in this repo (`systemd/`), so
+this table assigns it to trade-ai-analitic; re-registering the row
+is a follow-up cleanup, not a functional difference.
 
 Important nuance about the container layer: the *runtime*
 (dockerd, images, restart policy, netns) is owned by
@@ -93,6 +103,11 @@ owns the fix.
 
 Trace order for ingress-class incidents (8443-style):
 
+0. Split router-vs-host FIRST: probe the host's LAN address
+   directly (`curl http://<lan-ip>:8443/`, bypassing DNAT). If the
+   LAN probe works but the public one fails, the break is UPSTREAM
+   of the host - MikroTik DNAT / ISP / DNS - and the trace below is
+   pointless. Only continue if the LAN probe also fails.
 1. External probe: `curl -s -o /dev/null -w '%{http_code}'
    https://opticode.su:8443/...` (or the canary) - confirms the
    outage is real end-to-end.
@@ -100,8 +115,12 @@ Trace order for ingress-class incidents (8443-style):
    `ss -tlnp | grep <port>` - is anything listening?
 3. Forwarder process: `bridge ingress status` pid column -
    alive? (`pgrep -f session_bridge.ingress.forwarder`)
-4. Netns target: `cat docker-static/inner.pid`, compare with the
-   supervisor's actual dockerd pid - stale pidfile or dead netns.
+4. Netns target: `cat docker-static/inner.pid` IS the dockerd pid
+   (inner-dockerd.sh writes `$$` then `exec`s dockerd;
+   `docker-static/run/dockerd.pid` is dockerd's own pidfile - the
+   two must agree). Compare against the live process
+   (`pgrep -f dockerd`): a stale inner.pid or a dead pid = the
+   netns owner is gone and forwarders point nowhere.
 5. dockerd: `systemctl --user status rootless-docker` +
    `docker ps` (DOCKER_HOST=unix://docker-static/run/docker.sock).
 6. Container + app: `docker ps` -> container up? then app-level
@@ -119,8 +138,12 @@ zone:  <owning repo per this table>
 Escalation:
 
 - Broken hop owned by a repo -> that repo's session owns the fix.
-- Break ON the seam itself (forwarder materialization, registry
-  state, setns permissions) -> sessions-bridge owns.
+- Break ON the seam, split by context:
+  - forwarder *process* missing/misbound, registry state, tcp:
+    specs -> sessions-bridge owns;
+  - ns-* forwarder not (re)spawned while the supervisor loop
+    should own it, setns permission errors inside our userns ->
+    trade-ai-analitic owns.
 - Ownership contested or a zone missing from this table ->
   ai_controller arbitrates; outcome is appended to this table.
 
