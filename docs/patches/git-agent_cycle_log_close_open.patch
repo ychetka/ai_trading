@@ -1,0 +1,32 @@
+Canonical patch for .devin/agents/git.md - apply to every repo's
+agent profile. Context: gate-blocked releases left cycle_log entries
+with status=open that never closed after the downstream fix, and
+verify_constraints flagged them as a false incident trail (incident
+devin-telegram 2026-11-06).
+
+The patch appends two bullets right after the existing rule
+"Запись со status=open не переживает свой dispatch ..." in the
+"Правила" section of .devin/agents/git.md. Apply manually or with
+`patch` if the surrounding text matches verbatim.
+
+--- a/.devin/agents/git.md
++++ b/.devin/agents/git.md
+@@ -XX,6 +XX,19 @@
+   вызове append второй записи, закрывающей open-запись: тот же
+   item, action вида resolve_<что>, status=closed, verdict по факту
+   итога. Осиротевшие open-записи после ответа - дефект отчётности,
+   а не допустимый артефакт.
++- Gate-blocked кейс явно: reject wrapper'а логируется open +
++  failure_class=gate_blocked, в result уходит текст нарушения.
++  Диспатч, сообщающий резолюцию этого блока (успешный re-push,
++  фикс-коммит, разблокированный релиз), ОБЯЗАН закрыть именно эту
++  запись: тот же item, action resolve_gate_block, status=closed,
++  а в result - ссылка на исходное gate-blocked событие
++  ("closes open <action> from <ts>: <краткая причина блока>").
++- На входе в диспатч: прочитай cycle_log.jsonl и собери свои
++  open-записи (actor=git-agent, status=open) по текущему item -
++  они твои обязательства на этот вызов: либо закрываются
++  resolve_-записью при фактической резолюции, либо явно
++  переносятся в отчёт как "open obligation, still blocked by ...".
++  Молчаливо оставленные open-записи - дефект: verify_constraints
++  флагает их как ложный след инцидента.
