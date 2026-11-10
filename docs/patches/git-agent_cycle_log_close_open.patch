@@ -115,7 +115,7 @@ elif [ "$CMD" = "close" ]; then
   while [ $# -gt 0 ]; do
     case "$1" in
       --item) ITEM=$2;; --actor) ACTOR=$2;; --verdict) VERDICT=$2;;
-      --note) NOTE=$2;; --dry-run) DRY=1;; *) usage;;
+      --note) NOTE=$2;; --dry-run) DRY=1; shift; continue;; *) usage;;
     esac; shift 2
   done
   [ -n "$ACTOR" ] || { echo "close: --actor required"; exit 2; }
@@ -135,15 +135,18 @@ for line in open(log):
         rec = json.loads(line)
     except json.JSONDecodeError:
         out.append(line); continue
+    if not isinstance(rec, dict):
+        out.append(line); continue
     if (rec.get("status") == "open" and rec.get("actor") == actor
             and (not want_item or rec.get("item") == want_item)):
         rec["status"] = "closed"
         if verdict:
             rec["verdict"] = verdict
         if note:
-            rec["result"] = (rec.get("result") or "") + " | " + note
+            base = rec.get("result") or ""
+            rec["result"] = f"{base} | {note}" if base else note
         closed.append(rec)
-    out.append(json.dumps(rec) if isinstance(rec, dict) else line)
+    out.append(json.dumps(rec))
 if dry:
     for r in closed:
         print(json.dumps(r))
