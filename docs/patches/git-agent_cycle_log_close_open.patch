@@ -45,7 +45,8 @@ rollout. Apply TWO file changes together:
 +  Каждая open-запись - твоё обязательство: либо закрывается
 +  парой (cycle_log.sh close + append resolve_) при фактической
 +  резолюции, либо - если блок ещё жив - `cycle_log.sh close
-+  --verdict escalated --note "still blocked by <причина>"`:
++  --actor git-agent --verdict escalated --note "still blocked
++  by <причина>"`:
 +  висячий open+failure verify_constraints флагает как ложный
 +  след инцидента независимо от того, что написано в отчёте
 +  сессии. Молчаливо оставленные open-записи - дефект
