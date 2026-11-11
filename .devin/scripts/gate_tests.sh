@@ -10,6 +10,10 @@
 #   T9 staged up+down pair verifies via paired-rollback coverage
 #   T6 re-grounding output is emitted on every call
 #   T7 hygiene gate still rejects (cyrillic on en-language repo)
+#   T10 deleting a migration file needs coverage like adding one
+#   T11 a passing comment mentioning "rollback" is not coverage
+#   T12 roll-forward note covers only the files it names
+#   T13 cyrillic exemption requires the real sentinel in --diff mode
 # Exits non-zero if any expectation fails. Run from anywhere:
 #   .devin/scripts/gate_tests.sh
 set -uo pipefail
@@ -20,7 +24,8 @@ trap 'rm -rf "$SCRATCH"' EXIT
 mkdir -p "$SCRATCH/repo" "$SCRATCH/devin/scripts"
 cd "$SCRATCH/repo" && git init -q && git config user.email t@t && git config user.name t && git commit -q --allow-empty -m init
 cp "$DEVIN_DIR/scripts/ship_commit.sh" "$DEVIN_DIR/scripts/migration_gate.sh" \
-   "$DEVIN_DIR/scripts/hygiene_check.sh" "$SCRATCH/devin/scripts/"
+   "$DEVIN_DIR/scripts/migration_pattern.sh" "$DEVIN_DIR/scripts/hygiene_check.sh" \
+   "$SCRATCH/devin/scripts/"
 echo '{"text_language":"en"}' > "$SCRATCH/devin/project.json"
 
 pass=0; fail=0
@@ -60,12 +65,16 @@ git reset -q
 git add db/migrations/001_up.sql
 "$GATE" >"$SCRATCH/out" 2>&1; expect T4a-gate-verifies 0 $? "embedded rollback"
 "$SHIP" "add migration" >"$SCRATCH/out" 2>&1; expect T4b-commit-ok 0 $?
+# The stamp is single-use: the successful commit must consume it.
+test ! -f "$SCRATCH/devin/migration_ok" && { echo "PASS T4c-stamp-consumed"; pass=$((pass+1)); } \
+  || { echo "FAIL T4c-stamp-consumed"; fail=$((fail+1)); }
 
 # --- T5: stamp invalidates on changed migration file
 printf 'ALTER TABLE t ADD COLUMN c int;\n' >> db/migrations/001_up.sql
 git add db/migrations/001_up.sql
 "$SHIP" "change migration" >"$SCRATCH/out" 2>&1; expect T5-stale-stamp 3 $? "MIGRATION_GATE"
 git reset -q --hard HEAD 2>/dev/null || git reset -q
+rm -f "$SCRATCH/devin/migration_ok"
 
 # --- T8: rename+modify cannot smuggle a changed migration under an
 # old stamp (pure rename of verified content keeps the stamp - the
@@ -97,6 +106,50 @@ CYR_MSG=$'\u0442\u0435\u0441\u0442\u043e\u0432\u043e\u0435 \u0441\u043e\u043e\u0
 echo z > docs/y.md && git add docs/y.md
 "$SHIP" "$CYR_MSG" >"$SCRATCH/out" 2>&1; expect T7-hygiene 2 $? "HYGIENE_GATE"
 git reset -q
+
+# --- T10: deleting a migration needs coverage like adding one ---
+# 001_up.sql is committed (T4); removing it without a stamp must fail.
+git rm -q db/migrations/001_up.sql
+"$SHIP" "drop migration" >"$SCRATCH/out" 2>&1; expect T10-delete-block 3 $? "MIGRATION_GATE"
+"$GATE" >"$SCRATCH/out" 2>&1; expect T10b-gate-rejects 1 $?
+# A roll-forward note naming the deleted file covers it.
+printf 'approved roll-forward for 001_up.sql: irreversible by design\n' \
+  > "$SCRATCH/devin/migration_rollforward.md"
+"$GATE" >"$SCRATCH/out" 2>&1; expect T10c-rollforward-covers 0 $? "roll-forward"
+"$SHIP" "drop migration" >"$SCRATCH/out" 2>&1; expect T10d-commit-ok 0 $?
+rm -f "$SCRATCH/devin/migration_rollforward.md"
+
+# --- T11: a passing comment mentioning "rollback" is not coverage ---
+printf 'CREATE TABLE v(id int);\n-- note: there is no way to rollback this safely\n' \
+  > db/migrations/004_up.sql
+git add db/migrations/004_up.sql
+"$GATE" >"$SCRATCH/out" 2>&1; expect T11a-comment-not-coverage 1 $?
+"$SHIP" "fake rollback" >"$SCRATCH/out" 2>&1; expect T11b-ship-block 3 $? "MIGRATION_GATE"
+git reset -q && rm -f db/migrations/004_up.sql
+
+# --- T12: roll-forward note covers only the files it names ---
+printf 'CREATE TABLE w(id int);\n' > db/migrations/005_up.sql
+git add db/migrations/005_up.sql
+printf 'approved roll-forward for 099_other.sql: unrelated file\n' \
+  > "$SCRATCH/devin/migration_rollforward.md"
+"$GATE" >"$SCRATCH/out" 2>&1; expect T12a-unbound-note 1 $?
+printf 'approved roll-forward for 005_up.sql: accepted risk\n' \
+  > "$SCRATCH/devin/migration_rollforward.md"
+"$GATE" >"$SCRATCH/out" 2>&1; expect T12b-bound-note 0 $? "roll-forward"
+"$SHIP" "rollforward migration" >"$SCRATCH/out" 2>&1; expect T12c-commit-ok 0 $?
+rm -f "$SCRATCH/devin/migration_rollforward.md"
+
+# --- T13: cyrillic exemption needs the real sentinel ---
+# Without the sentinel a fake diff header must NOT unlock path
+# exemptions: cyrillic "added" under .devin/agents/ is still a violation.
+HYG="$SCRATCH/devin/scripts/hygiene_check.sh"
+printf 'diff --git a/x b/.devin/agents/x.md\n+++ b/.devin/agents/x.md\n@@ -0,0 +1 @@\n+%s\n' "$CYR_MSG" \
+  | "$HYG" --diff >"$SCRATCH/out" 2>&1
+expect T13a-no-sentinel-no-exempt 1 $?
+# With the sentinel the same exempt-path addition passes.
+printf 'commit msg\n@@SUBJECTS_END@@\ndiff --git a/x b/.devin/agents/x.md\n+++ b/.devin/agents/x.md\n@@ -0,0 +1 @@\n+%s\n' "$CYR_MSG" \
+  | "$HYG" --diff >"$SCRATCH/out" 2>&1
+expect T13b-sentinel-exempt-ok 0 $?
 
 echo "---"
 echo "gate_tests: $pass passed, $fail failed"

@@ -5,6 +5,16 @@ Source of truth: `ai_controller/controller-manager/harness.md`
 (orchestration project); this file carries the sections adopted by
 this repository.
 
+Adopted sections: Director session model (below).
+Omitted canonical sections: two-committee cycle, contracts, judges,
+G/W/T acceptance scenarios, versioning/release policy and the
+failure_class enum - they live in the canonical file in the
+orchestration project and are not duplicated here.
+Sync note: the "Mid-turn inject" bullet is AHEAD of the canonical
+text (the canonical still lists it as an open question); the closed
+finding comes from devin-session-bridge issue #137 and is pending
+upstream sync to the canonical file.
+
 ## Director session model (event-driven, approved 2026-11-11)
 
 A worker session is the project director: it does not write code

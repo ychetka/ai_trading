@@ -10,8 +10,9 @@
 #   b) the file itself contains a rollback/downgrade section
 #      (down|undo|rollback|revert|downgrade), or
 #   c) an approved roll-forward note exists at
-#      .devin/migration_rollforward.md (human-approved, contains the
-#      justification for going forward-only)
+#      .devin/migration_rollforward.md (human-approved, names this
+#      migration file by basename and contains the justification for
+#      going forward-only)
 #
 # Optional: if the project provides a native dry-run entrypoint via
 # DRY_RUN_CMD env var, it is executed in a subshell with a timeout —
@@ -28,7 +29,8 @@ cd "$TOP"
 CHECK_ONLY=0
 [ "${1:-}" = "--check" ] && CHECK_ONLY=1
 
-MIG_PAT='(^|/)(migrations?|alembic/versions|db/migrate|flyway|liquibase)/|(^|/)[VU][0-9]+(_[0-9]+)*__.*\.sql$'
+# Shared pattern - single source, do not fork it here.
+. "$DEVIN_DIR/scripts/migration_pattern.sh"
 
 # A basename that denotes a rollback artifact rather than a migration
 # that needs coverage (001_down.sql, U2__undo.sql, *_rollback.sql).
@@ -40,8 +42,10 @@ is_rollback_name() {
 }
 
 # Staged files needing coverage: migration-pattern paths that are not
-# themselves rollback artifacts.
-mapfile -t all_mig < <(git diff --cached --name-only --diff-filter=AMR | grep -E "$MIG_PAT" || true)
+# themselves rollback artifacts. Deletions count too - removing an
+# applied migration needs the same rollback/roll-forward scrutiny as
+# adding one.
+mapfile -t all_mig < <(git diff --cached --name-only --diff-filter=ADMR | grep -E "$MIG_PAT" || true)
 staged=(); pairs=()
 for f in ${all_mig[@]+"${all_mig[@]}"}; do
   if is_rollback_name "$f"; then pairs+=("$f"); else staged+=("$f"); fi
@@ -55,8 +59,11 @@ if [ ${#staged[@]} -eq 0 ]; then
   exit 1
 fi
 
-# Rollback vocabulary, language-neutral heuristic.
-ROLLBACK_RE='downgrade|rollback|revert|\bundo\b|\bdown\b'
+# Rollback vocabulary, language-neutral heuristic. The word must act
+# as a directive (immediately followed by ':', '(' or a section marker)
+# so a passing comment like "-- no way to rollback this" cannot count
+# as coverage.
+ROLLBACK_RE='(rollback|downgrade|revert|\bundo\b)[^A-Za-z0-9_]{0,3}[:=(]|\bdown\b[[:space:]]*[:=(]'
 
 # Stem of a migration filename: the leading identifier that a paired
 # rollback file must share (001_x <-> 001_y, V2__x <-> U2__y share "2",
@@ -79,8 +86,10 @@ for f in "${staged[@]}"; do
   if [ -z "$covered" ] && git show ":$f" 2>/dev/null | grep -qiE "$ROLLBACK_RE"; then
     covered="embedded rollback section"
   fi
-  # c) approved roll-forward note
-  if [ -z "$covered" ] && [ -s "$DEVIN_DIR/migration_rollforward.md" ]; then
+  # c) approved roll-forward note - bound to this file: the note must
+  # name the migration's basename, otherwise it covers nothing.
+  if [ -z "$covered" ] && [ -s "$DEVIN_DIR/migration_rollforward.md" ] \
+     && grep -qiF -- "$(basename "$f")" "$DEVIN_DIR/migration_rollforward.md"; then
     covered="approved roll-forward (.devin/migration_rollforward.md)"
   fi
   if [ -z "$covered" ]; then

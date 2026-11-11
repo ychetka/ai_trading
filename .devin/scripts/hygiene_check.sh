@@ -73,16 +73,24 @@ rules = [
      "credential assignment"),
 ]
 
+# Path-based cyrillic exemptions are trusted only when the input
+# carried the real sentinel; without it an attacker-controlled
+# preamble could emit a fake "diff --git a/x b/.devin/agents/y" header
+# and smuggle cyrillic under the .devin/agents/ exemption.
+exemptions_enabled = (mode != "diff") or ("\n@@SUBJECTS_END@@\n" in text)
+
 # In diff mode each checked line carries the file it was added to;
 # plain text before the first `diff --git` (subjects/messages) has no path.
 def items():
     # In --diff-base mode INPUT is subjects + sentinel + raw diff. Subjects
     # are attacker-controlled text (commit messages) and must never feed the
     # diff state machine - a subject like "diff --git a/x b/x" could desync
-    # path tracking and smuggle exempted cyrillic. Split first.
+    # path tracking and smuggle exempted cyrillic. Split on the LAST
+    # sentinel: one embedded inside the message itself stays in the
+    # scanned plain-text part and cannot open a fake diff body.
     body = text
     if mode == "diff" and "\n@@SUBJECTS_END@@\n" in text:
-        subjects, body = text.split("\n@@SUBJECTS_END@@\n", 1)
+        subjects, body = text.rsplit("\n@@SUBJECTS_END@@\n", 1)
         for line in subjects.splitlines():
             yield line, None  # subjects scanned with no path context
     path = None
@@ -103,10 +111,16 @@ def items():
             header = False
             continue
         if mode == "diff" and header and line.startswith("+++"):
-            if line.startswith("+++ b/"):
-                path = line[6:]
+            # git quotes paths with special chars: +++ "b/f o o"
+            raw = line[4:].strip()
+            if raw.startswith('"') and raw.endswith('"'):
+                raw = raw[1:-1]
+            if raw.startswith("b/"):
+                path = raw[2:]
+            elif raw == "/dev/null":
+                path = None
             else:
-                path = line[4:]
+                path = raw
             continue
         if mode == "diff" and line.startswith("+"):
             yield line, path
@@ -119,7 +133,7 @@ for i, (line, path) in enumerate(items(), 1):
     for pattern, cls, hint in rules:
         if re.search(pattern, line, re.IGNORECASE):
             hit(cls, pattern, i, hint, path)
-    exempt = path is not None and any(
+    exempt = exemptions_enabled and path is not None and any(
         path.startswith(p) for p in cyr_paths)
     if lang == "en" and not exempt and re.search(
             "[\\u0410-\\u044f\\u0401\\u0451]", line):

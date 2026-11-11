@@ -17,6 +17,9 @@ DEVIN_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TOP=$(git rev-parse --show-toplevel 2>/dev/null || git -C code rev-parse --show-toplevel 2>/dev/null) || { echo "not a git repo" >&2; exit 1; }
 cd "$TOP"
 
+# Shared pattern - single source, do not fork it here.
+. "$DEVIN_DIR/scripts/migration_pattern.sh"
+
 MSG="${1:?usage: ship_commit.sh \"message\" [file ...]}"
 shift || true
 
@@ -34,7 +37,10 @@ echo "=== END RE-GROUNDING ===" >&2
 WL="$DEVIN_DIR/scope_whitelist.txt"
 if [ -f "$WL" ]; then
   bad=""
-  while IFS= read -r f; do
+  # --no-renames expands a rename into delete+add so BOTH the source
+  # and destination paths are scope-checked; -z keeps filenames with
+  # special characters intact.
+  while IFS= read -r -d '' f; do
     [ -z "$f" ] && continue
     ok=0
     while IFS= read -r line; do
@@ -44,9 +50,7 @@ if [ -f "$WL" ]; then
       case "$f" in "$line"/*) ok=1; break ;; esac
     done < "$WL"
     [ "$ok" -eq 0 ] && bad="$bad$f"$'\n'
-  done <<EOF
-$(git diff --cached --name-only)
-EOF
+  done < <(git diff --cached --name-only --no-renames -z)
   if [ -n "$bad" ]; then
     echo "SCOPE_GATE: staged files outside $WL:" >&2
     printf '%s' "$bad" >&2
@@ -55,8 +59,9 @@ EOF
 fi
 
 # --- Gate 2: migration gate ---
-MIG_PAT='(^|/)(migrations?|alembic/versions|db/migrate|flyway|liquibase)/|(^|/)[VU][0-9]+(_[0-9]+)*__.*\.sql$'
-migs=$(git diff --cached --name-only --diff-filter=AMR | grep -E "$MIG_PAT" || true)
+# Deletions are in scope: dropping an applied migration needs the
+# stamp just like adding one.
+migs=$(git diff --cached --name-only --diff-filter=ADMR | grep -E "$MIG_PAT" || true)
 if [ -n "$migs" ]; then
   stamp="$DEVIN_DIR/migration_ok"
   # Bind to staged blob hashes (index), not working-copy files.
@@ -83,3 +88,8 @@ if [ $rc -ne 0 ]; then
 fi
 
 git commit -m "$MSG"
+rc=$?
+# The migration stamp is single-use: consume it once the commit it
+# verified actually happened, so a later commit cannot inherit it.
+[ $rc -eq 0 ] && rm -f "$DEVIN_DIR/migration_ok"
+exit $rc
