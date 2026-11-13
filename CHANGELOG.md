@@ -4,6 +4,17 @@ Release sections are generated from `.changes/` fragments by
 `tools/release_notes.sh --version X.Y.Z --apply` - do not edit them
 by hand.
 
+## [4.9.3] - 2026-11-13
+
+### User-facing
+
+_No user-visible changes._
+
+### Codebase
+
+#### tools
+- [fix] tools/rs_dump.js klines() now merges fetched kline pages through the exported mergePages() helper, returning deduped ascending [ts,close,high,low] bars instead of Map-entry pairs. Why: PR #92 stored [ts,close,high,low] bars as dedupe-map values but still returned map.entries() key/value pairs, so bars[i][1] was a nested array -> NaN RS -> zero detected dumps on live data (9 real dump windows over 14 days missed). mergePages() is exported and unit-tested so the regression cannot slip through again. (issue #91, PR #92)
+
 ## [4.9.2] - 2026-11-13
 
 ### User-facing
