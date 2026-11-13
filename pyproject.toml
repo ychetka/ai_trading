@@ -1,0 +1,5 @@
+[project]
+name = "ai_trading"
+version = "4.9.4"
+description = "Deterministic market-telemetry and hypothesis-testing toolkit for Bybit USDT-M perps"
+requires-python = ">=3.10"
