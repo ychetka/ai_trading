@@ -52,21 +52,34 @@ async function page(sym, end) {
   return [];
 }
 
+// mergePages: fold fetched kline pages into one deduped, ascending
+// bar list. Pages arrive newest-first and may duplicate bars across
+// page boundaries; dedupe by ts and sort ascending. Return the bar
+// VALUES themselves - every consumer reads bars[i][1] as the numeric
+// close, so emitting Map-entry pairs here (the PR #92 regression)
+// poisons all downstream math with NaN.
+function mergePages(pages) {
+  const map = new Map();
+  for (const p of pages) for (const k of p) map.set(k[0], k);
+  return [...map.values()].sort((a, b) => a[0] - b[0]);
+}
+
 // fetch up to DAYS of history paging backwards; Bybit returns newest-first
 async function klines(sym) {
-  const map = new Map();
+  const pages = [];
   let end = Date.now();
   const floor = end - DAYS * 24 * H;
   for (let p = 0; p < 30; p++) {
     const b = await page(sym, end);
     if (!b.length) break;
+    pages.push(b);
     let oldest = Infinity;
-    for (const k of b) { map.set(k[0], k); if (k[0] < oldest) oldest = k[0]; }
+    for (const k of b) if (k[0] < oldest) oldest = k[0];
     if (oldest <= floor || oldest >= end) break;
     end = oldest - 1;
     await sleep(200);
   }
-  return [...map.entries()].sort((a, b) => a[0] - b[0]);
+  return mergePages(pages);
 }
 
 const at = (bars, ts) => {          // last bar closed at/before ts
@@ -188,4 +201,4 @@ async function main() {
 }
 
 if (require.main === module) main();
-module.exports = { detectDumps, rsFor, passesFilters, topCandidates, at };
+module.exports = { detectDumps, rsFor, passesFilters, topCandidates, at, mergePages };

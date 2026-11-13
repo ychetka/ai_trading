@@ -8,7 +8,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { detectDumps, rsFor, passesFilters, topCandidates, at } = require('./rs_dump.js');
+const { detectDumps, rsFor, passesFilters, topCandidates, at, mergePages } = require('./rs_dump.js');
 
 const H = 3600e3;
 const T0 = 1_700_000_000_000;                       // fixed epoch, UTC-explicit
@@ -94,6 +94,40 @@ test('passesFilters: pierce without recovery rejects while upper-half holds', ()
 test('passesFilters: fewer than lb prior bars cannot qualify', () => {
   const bars = candBars(96.5, 97, 94, 95, 23);      // b=23 < lb=24
   assert.strictEqual(passesFilters(bars, T_END(23), 2), false);
+});
+
+test('mergePages: newest-first pages with overlap -> ascending [ts,close,high,low] bars', () => {
+  // Regression for the PR #92 entries() bug: klines() deduped bars in
+  // a Map but returned map.entries() pairs, so bars[i][1] was the
+  // nested bar array instead of a numeric close -> NaN RS -> zero
+  // detected dumps on live data. This pins the output shape.
+  const closes = [100, 99, 98, 97, 96, 95, 94, 93, 92, 91];
+  const mkBar = (i, c) => [T0 + i * H, c, c * 1.01, c * 0.99];
+  const all = closes.map((c, i) => mkBar(i, c));
+  // pages as klines() collects them: each newest-first, the second
+  // page overlaps the first on bars 5-6 (dedupe by ts)
+  const pages = [
+    all.slice(5).reverse(),                       // bars 9..5
+    all.slice(0, 7).reverse(),                    // bars 6..0 (5,6 dup)
+  ];
+  const bars = mergePages(pages);
+  assert.strictEqual(bars.length, 10, 'duplicated bars must dedupe by ts');
+  assert.ok(bars.every((b, i) => b[0] === T0 + i * H), 'bars must sort ascending by ts');
+  for (const b of bars) {
+    assert.strictEqual(b.length, 4, 'bar must be [ts, close, high, low]');
+    assert.strictEqual(typeof b[1], 'number', 'bars[i][1] must be the numeric close, not a nested pair');
+  }
+  assert.strictEqual(bars[0][1], 100);
+  assert.strictEqual(bars[9][1], 91);
+});
+
+test('mergePages: single page and empty input', () => {
+  const page = [bar(2, 98), bar(1, 99), bar(0, 100)];   // newest-first
+  const bars = mergePages([page]);
+  assert.deepStrictEqual(bars.map(b => b[0]), [T0, T0 + H, T0 + 2 * H]);
+  assert.strictEqual(bars[0][1], 100);
+  assert.deepStrictEqual(mergePages([]), []);
+  assert.deepStrictEqual(mergePages([[]]), []);
 });
 
 test('at: last bar closed at/before ts', () => {
